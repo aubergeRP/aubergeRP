@@ -1,0 +1,9 @@
+*.gguf
+*.gguf.partial
+*.bin
+*.pt
+*.pth
+*.safetensors
+*.ot
+*.tmpl
+*.json
