@@ -802,7 +802,8 @@ function updateImageConnectorStatus(hasConnector) {
 
 function renderMarkdown(text) {
   if (typeof marked !== 'undefined') {
-    return marked.parse(text, { breaks: true });
+    const raw = marked.parse(text, { breaks: true });
+    return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(raw) : raw;
   }
   // Fallback: escape HTML
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
