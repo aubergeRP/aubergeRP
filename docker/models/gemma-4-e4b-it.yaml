@@ -1,0 +1,21 @@
+backend: llama-cpp
+function:
+    automatic_tool_parsing_fallback: true
+    grammar:
+        disable: true
+known_usecases:
+    - chat
+    - vision
+min_p: 0
+mmproj: mmproj-gemma-4-E4B-it-bf16.gguf
+name: gemma-4-e4b-it
+options:
+    - use_jinja:true
+parameters:
+    model: gemma-4-E4B-it-Q4_K_M.gguf
+repeat_penalty: 1
+temperature: 1
+template:
+    use_tokenizer_template: true
+top_k: 64
+top_p: 0.95

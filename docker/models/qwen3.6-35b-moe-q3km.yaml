@@ -1,0 +1,11 @@
+name: qwen3.6-35b-moe-q3km
+backend: llama-cpp
+parameters:
+  model: Qwen3.6-35B-A3B-uncensored-heretic-Native-MTP-Preserved-Q3_K_M.gguf
+context_size: 4096
+f16: true
+gpu_layers: 999
+mmap: true
+download_files:
+  - filename: Qwen3.6-35B-A3B-uncensored-heretic-Native-MTP-Preserved-Q3_K_M.gguf
+    uri: https://huggingface.co/llmfan46/Qwen3.6-35B-A3B-uncensored-heretic-Native-MTP-Preserved-GGUF/resolve/main/Qwen3.6-35B-A3B-uncensored-heretic-Native-MTP-Preserved-Q3_K_M.gguf
