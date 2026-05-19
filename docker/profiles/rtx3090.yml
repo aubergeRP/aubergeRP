@@ -1,11 +1,11 @@
 # RTX 3090 (24 GB VRAM)
 
 # Objective is to be around 19GB of VRAM usage, to keep space for context.
-# gemma-4-26b-a4b-it Q3_K_M: ~14.2GB (13GB model + 1.19GB mmproj)
-# flux.2-klein-9b: ~3GB on GPU (offload_params_to_cpu, Qwen3-8B on CPU)
+# gemma-4-e4b-it: 6.3GB
+# flux.2-klein-9b: 10.7GB
 
 x-models:
-  llm_name: &llm_name gemma-4-26b-a4b-it
+  llm_name: &llm_name gemma-4-e4b-it
   llm_ctx: &llm_ctx 8192
   llm_max_tokens: &llm_max_tokens 4096
   img_name: &img_name flux.2-klein-9b
