@@ -671,7 +671,7 @@ class ChatService:
             tokens: list[str] = []
             async for chunk in text_connector.stream_chat_completion(
                 [{"role": "user", "content": user_content}],
-                max_tokens=300,
+                max_tokens=2048,
                 temperature=0.7,
             ):
                 tokens.append(chunk)

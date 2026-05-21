@@ -27,6 +27,8 @@ On frontend, all images generated with an NSFW connector must be blurried by def
 
 ## Low priority / Future
 
+- [ ] When downloading new model in localAI, the model is not available until the download completes. It would be nice to detect this state in the connector and display a "model downloading, please wait" message in the UI instead of just showing an error.
+
 - [ ] **Full user authentication** — password or IP-allowlist protecting the chat UI (the admin panel already has its own password). Config: `app.auth_mode` (`none` | `password` | `ip_allowlist`).
 
 - [ ] **Multi-character conversations** — more than one character per conversation.

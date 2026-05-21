@@ -3,7 +3,7 @@ services:
     image: localai/localai:latest-gpu-nvidia-cuda-12
     container_name: auberge-ai
     volumes:
-      - ../data/models:/models
+      - ./models:/models
     ports:
       - "8080:8080"
 

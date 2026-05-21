@@ -1,6 +1,6 @@
 # RTX 3090 (24 GB VRAM)
 
-# Objective is to be around 19B of VRAM usage, to keep space for context.
+# Objective is to be around 19GB of VRAM usage, to keep space for context.
 # gemma-4-e4b-it: 6.3GB
 # flux.2-klein-9b: 10.7GB
 

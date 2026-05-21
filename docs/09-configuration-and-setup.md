@@ -32,10 +32,13 @@ gui:
   custom_css: ""
   custom_header_html: ""
   custom_footer_html: ""
-
-marketplace:
-  index_url: "https://raw.githubusercontent.com/aubergeRP/aubergeRP/main/marketplace/index.json"
 ```
+
+## GUI customization
+
+`gui.custom_css` injects CSS into every page.
+
+`gui.custom_header_html` and `gui.custom_footer_html` are injected as **raw HTML** — they are not sanitized. Anyone with admin access can use these fields to execute arbitrary JavaScript in every visitor's browser. Treat your admin password accordingly, and do not expose the admin panel to untrusted users.
 
 ## Environment variable overrides
 

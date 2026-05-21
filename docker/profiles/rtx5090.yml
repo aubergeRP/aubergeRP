@@ -1,10 +1,11 @@
 # RTX 5090 (32 GB VRAM)
 
-# qwen3-vl-32b-instruct: 21GB
-# flux.2-klein-9b: 10.7GB
+# Objective is to be around 21GB of VRAM usage, to keep space for context.
+# gemma-4-26b-a4b-it Q4_K_M: ~18.2GB (17GB model + 1.19GB mmproj)
+# flux.2-klein-9b: ~3GB on GPU (offload_params_to_cpu, Qwen3-8B on CPU)
 
 x-models:
-  llm_name: &llm_name qwen3-vl-32b-instruct
+  llm_name: &llm_name gemma-4-26b-a4b-it
   llm_ctx: &llm_ctx 8192
   llm_max_tokens: &llm_max_tokens 4096
   img_name: &img_name flux.2-klein-9b

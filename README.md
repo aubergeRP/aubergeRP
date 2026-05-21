@@ -67,6 +67,14 @@ The Docker setup ships with a bundled [LocalAI](https://localai.io/) instance �
 
 
 
+## ⚠️ Deployment Notice
+
+AubergeRP is designed for **personal, self-hosted use on a trusted network** (your home LAN, a VPN, or localhost).
+
+The chat UI has **no user authentication**. Anyone who can reach the server port can read conversations and chat with your characters. The admin panel has its own password, but the chat itself is open.
+
+**Do not expose AubergeRP directly to the internet** without putting it behind a reverse proxy that enforces authentication (e.g. HTTP basic auth via nginx, Authelia, Cloudflare Access, or similar). Full user-facing auth (`app.auth_mode`) is a planned feature — see [TODO.md](TODO.md).
+
 ## 🏗 Technology Stack
 
 * **Backend:** Python 3.12+, FastAPI, SQLite.
