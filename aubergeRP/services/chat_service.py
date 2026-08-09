@@ -5,6 +5,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
@@ -26,6 +27,23 @@ _MAX_IMAGE_MARKERS = 3
 
 _IMAGE_PROMPT_TEMPLATE = Path(__file__).parent.parent / "prompts" / "image_prompt.txt"
 _IMAGE_PROMPT_MAX_CONTEXT = 6
+
+
+@dataclass(slots=True)
+class GenerationOptions:
+    user_name: str = "User"
+    retry_deduplicate_user_message: bool = False
+
+
+@dataclass(slots=True)
+class GenerationResult:
+    text: str
+    message_id: str
+    images: list[str]
+
+
+class ChatGenerationError(RuntimeError):
+    pass
 
 # ---------------------------------------------------------------------------
 # OOC (out-of-character) protection
@@ -384,12 +402,56 @@ class ChatService:
             return False
         return bool(config.get("nsfw", False))
 
+    @staticmethod
+    def _is_retry_message(conversation: Conversation, content: str) -> bool:
+        last_msg = conversation.messages[-1] if conversation.messages else None
+        return bool(
+            last_msg is not None
+            and last_msg.role == "user"
+            and last_msg.content == content
+        )
+
+    async def generate_reply(
+        self,
+        conversation_id: str,
+        content: str,
+        options: GenerationOptions | None = None,
+    ) -> GenerationResult:
+        run_options = options or GenerationOptions()
+        done_event: dict[str, Any] | None = None
+        async for event in self._generate_events(conversation_id, content, run_options):
+            if event["type"] == "error":
+                raise ChatGenerationError(str(event.get("detail", "Chat generation failed")))
+            if event["type"] == "done":
+                done_event = event
+        if done_event is None:
+            raise ChatGenerationError("Chat generation did not complete")
+        return GenerationResult(
+            text=str(done_event.get("full_content", "")),
+            message_id=str(done_event.get("message_id", "")),
+            images=list(done_event.get("images", [])),
+        )
+
     async def stream_chat(
         self,
         conversation_id: str,
         content: str,
         user_name: str = "User",
     ) -> AsyncIterator[dict[str, Any]]:
+        options = GenerationOptions(
+            user_name=user_name,
+            retry_deduplicate_user_message=True,
+        )
+        async for event in self._generate_events(conversation_id, content, options):
+            yield event
+
+    async def _generate_events(
+        self,
+        conversation_id: str,
+        content: str,
+        options: GenerationOptions,
+    ) -> AsyncIterator[dict[str, Any]]:
+        user_name = options.user_name
         try:
             conv = self._conversation_service.get_conversation(conversation_id)
             char = self._character_service.get_character(conv.character_id)
@@ -397,15 +459,10 @@ class ChatService:
             yield {"type": "error", "detail": str(exc)}
             return
 
-        # On retry, the last message is already the user message; skip re-adding it
-        # to avoid duplicates in the conversation history.
-        # Note: the frontend enforces a single-active-stream invariant (_streaming flag),
-        # so two identical messages cannot be sent concurrently in practice.
-        last_msg = conv.messages[-1] if conv.messages else None
+        # Frontend retries should not duplicate the user turn.
         is_retry = (
-            last_msg is not None
-            and last_msg.role == "user"
-            and last_msg.content == content
+            options.retry_deduplicate_user_message
+            and self._is_retry_message(conv, content)
         )
         if not is_retry:
             try:
@@ -860,4 +917,3 @@ class ChatService:
                 message_id="",
                 media_items=generated_media,
             )
-

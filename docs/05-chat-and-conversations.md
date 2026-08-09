@@ -12,6 +12,22 @@
 5. On completion: persists user + assistant messages in SQLite, emits `done`.
 6. On fatal error: emits `error`; nothing is saved.
 
+## Internal generation API (transport-agnostic)
+
+`ChatService` also exposes an internal Python API that does not depend on FastAPI or SSE:
+
+```python
+result = await chat_service.generate_reply(
+    conversation_id=conversation.id,
+    content="Hello",
+)
+print(result.text)
+```
+
+This path uses the same RP pipeline as Web/SSE (prompt construction, history,
+summarization, connector call, and persistence). The HTTP/SSE router remains a
+consumer of the same generation engine.
+
 ## SSE events
 
 | Event | Data |
