@@ -7,10 +7,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from aubergeRP.models.character import CharacterCard, CharacterData
 from aubergeRP.models.conversation import Conversation
 from aubergeRP.services.character_service import CharacterService
 from aubergeRP.services.chat_service import (
+    ChatGenerationError,
     ChatService,
     ImageMarkerParser,
     _format_user_message_for_llm,
@@ -68,6 +71,24 @@ class _FakeText:
         return {"connected": True}
 
 
+class _RecordingText:
+    connector_type = "text"
+    supports_tool_calling = False
+
+    def __init__(self, *call_responses: list[str]) -> None:
+        self._responses = list(call_responses) or [[]]
+        self.calls: list[list[dict[str, Any]]] = []
+
+    async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
+        self.calls.append(messages)
+        idx = min(len(self.calls) - 1, len(self._responses) - 1)
+        for token in self._responses[idx]:
+            yield token
+
+    async def test_connection(self) -> dict:
+        return {"connected": True}
+
+
 class _FailText:
     """Text connector that raises on stream."""
     connector_type = "text"
@@ -119,13 +140,21 @@ def _manager(text_conn=None, image_conn=None) -> MagicMock:
     return m
 
 
-def make_chat_service(tmp_path: Path, text_conn=None, image_conn=None) -> tuple:
+def make_chat_service(
+    tmp_path: Path,
+    text_conn=None,
+    image_conn=None,
+    context_window: int = 4096,
+    summarization_threshold: float = 0.75,
+) -> tuple:
     char_svc, conv_svc = make_services(tmp_path)
     svc = ChatService(
         conversation_service=conv_svc,
         character_service=char_svc,
         connector_manager=_manager(text_conn, image_conn),
         images_dir=tmp_path / "images",
+        context_window=context_window,
+        summarization_threshold=summarization_threshold,
     )
     return char_svc, conv_svc, svc
 
@@ -529,6 +558,121 @@ async def test_stream_connector_error(tmp_path):
     conv = conv_svc.create_conversation(char.id)
     events = await collect(svc.stream_chat(conv.id, "Hi"))
     assert any(e["type"] == "error" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# generate_reply (internal non-HTTP API)
+# ---------------------------------------------------------------------------
+
+async def test_generate_reply_non_streaming(tmp_path):
+    text = _RecordingText(["Hello", " world"])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    result = await svc.generate_reply(conv.id, "Hi")
+
+    assert result.text == "Hello world"
+    assert result.message_id
+    assert result.images == []
+    assert len(text.calls) == 1
+    assert any(m["role"] == "user" and m["content"] == "Hi" for m in text.calls[0])
+
+
+async def test_generate_reply_persists_user_and_assistant_messages(tmp_path):
+    text = _RecordingText(["Assistant reply"])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    await svc.generate_reply(conv.id, "Hello there")
+
+    reloaded = conv_svc.get_conversation(conv.id)
+    assert [m.role for m in reloaded.messages] == ["user", "assistant"]
+    assert [m.content for m in reloaded.messages] == ["Hello there", "Assistant reply"]
+
+
+async def test_generate_reply_uses_existing_history(tmp_path):
+    text = _RecordingText(["I remember Pixel."])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+    conv_svc.append_message(conv.id, "user", "mon chien s'appelle Pixel")
+    conv_svc.append_message(conv.id, "assistant", "joli nom")
+
+    await svc.generate_reply(conv.id, "comment s'appelle mon chien ?")
+
+    sent_messages = text.calls[0]
+    assert any(
+        m["role"] == "user" and "mon chien s'appelle Pixel" in m["content"]
+        for m in sent_messages
+    )
+    assert any(
+        m["role"] == "assistant" and "joli nom" in m["content"]
+        for m in sent_messages
+    )
+
+
+async def test_generate_reply_uses_character_configuration(tmp_path):
+    text = _RecordingText(["En garde!"])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(
+        name="Elara",
+        description="An elven ranger.",
+        personality="Brave and witty.",
+        scenario="Inside an old tavern.",
+        first_mes="",
+    ))
+    conv = conv_svc.create_conversation(char.id)
+
+    await svc.generate_reply(conv.id, "hello")
+
+    system_prompt = text.calls[0][0]["content"]
+    assert "Elara's description: An elven ranger." in system_prompt
+    assert "Elara's personality: Brave and witty." in system_prompt
+    assert "Scenario: Inside an old tavern." in system_prompt
+
+
+async def test_generate_reply_uses_summarization_pipeline(tmp_path):
+    text = _RecordingText(["summary text"], ["final reply"])
+    char_svc, conv_svc, svc = make_chat_service(
+        tmp_path,
+        text_conn=text,
+        context_window=300,
+        summarization_threshold=0.5,
+    )
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+    for idx in range(8):
+        role = "user" if idx % 2 == 0 else "assistant"
+        conv_svc.append_message(conv.id, role, f"{role}-{idx} " + ("a" * 320))
+
+    await svc.generate_reply(conv.id, "latest")
+
+    assert len(text.calls) >= 2
+    summary_call = text.calls[0]
+    generation_call = text.calls[-1]
+    assert len(summary_call) == 2
+    assert summary_call[0]["role"] == "system"
+    assert summary_call[1]["role"] == "user"
+    assert any(
+        m["role"] == "system"
+        and str(m["content"]).startswith("[Summary of earlier conversation]")
+        for m in generation_call
+    )
+
+
+async def test_generate_reply_handles_connector_failure(tmp_path):
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=_FailText())
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    reloaded = conv_svc.get_conversation(conv.id)
+    assert [m.role for m in reloaded.messages] == ["user"]
+    assert [m.content for m in reloaded.messages] == ["Hi"]
 
 
 # ---------------------------------------------------------------------------
