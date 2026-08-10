@@ -155,6 +155,14 @@ class ProactiveScheduler:
                     "ProactiveScheduler: delivery failed for instance %s (message persisted)",
                     row.id,
                 )
+                svc.complete_execution(
+                    row.id,
+                    defn,
+                    status="failed",
+                    reason="delivery_failed",
+                    utc_now=now,
+                )
+                return
 
             svc.complete_execution(row.id, defn, status="sent", utc_now=now, mark_sent=True)
         except Exception:

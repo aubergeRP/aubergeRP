@@ -149,6 +149,8 @@ def _schedule_from_json(raw: str) -> ScheduleDefinition | None:
 
 def _dedupe_key(defn: ScheduleDefinition) -> str:
     payload = defn.model_dump(mode="json")
+    payload.pop("id", None)
+    payload.pop("enabled", None)
     payload["instruction"] = str(payload.get("instruction", "")).strip().lower()
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 

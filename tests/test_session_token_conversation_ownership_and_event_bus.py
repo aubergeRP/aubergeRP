@@ -210,6 +210,49 @@ def test_api_list_conversations_no_token_returns_all(api_client):
     assert len(resp.json()) == 2
 
 
+def test_api_create_conversation_logs_schedule_creation_failure(tmp_path, monkeypatch, caplog):
+    from aubergeRP.config import get_config, reset_config
+    from aubergeRP.models.character import CharacterData
+
+    reset_config()
+    get_config().app.data_dir = str(tmp_path)
+    char_svc = CharacterService(data_dir=tmp_path)
+    char = char_svc.create_character(
+        CharacterData(
+            name="SchedChar",
+            description="desc",
+            extensions={
+                "aubergerp": {
+                    "schedules": [
+                        {
+                            "id": "followup",
+                            "enabled": True,
+                            "type": "after_delay",
+                            "delay_minutes": 10,
+                            "instruction": "Ping later",
+                        }
+                    ]
+                }
+            },
+        )
+    )
+
+    def _fail_get_or_create(*args, **kwargs):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(
+        "aubergeRP.services.schedule_instance_service.ScheduleInstanceService.get_or_create",
+        _fail_get_or_create,
+    )
+    app = create_app()
+    with TestClient(app) as client, caplog.at_level("WARNING"):
+        resp = client.post("/api/conversations/", json={"character_id": char.id})
+    assert resp.status_code == 201
+    assert any(
+        "Failed to create proactive schedule instance" in rec.message for rec in caplog.records
+    )
+
+
 # ---------------------------------------------------------------------------
 # 4. EventBus: subscribe / publish / unsubscribe
 # ---------------------------------------------------------------------------

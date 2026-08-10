@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ..models.conversation import Conversation, ConversationCreate, ConversationSummary
@@ -9,6 +11,7 @@ from ..services.schedule_instance_service import ScheduleInstanceService
 from ..services.timezone_service import TimezoneService
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+logger = logging.getLogger(__name__)
 
 
 def get_conversation_service() -> ConversationService:
@@ -59,6 +62,11 @@ def create_conversation(
             try:
                 defn = ScheduleDefinition(**raw)
             except Exception:
+                logger.warning(
+                    "Invalid proactive schedule definition in character card '%s'",
+                    body.character_id,
+                    exc_info=True,
+                )
                 continue
             try:
                 sched_svc.get_or_create(
@@ -75,6 +83,11 @@ def create_conversation(
                     proactive=proactive,
                 )
             except Exception:
+                logger.warning(
+                    "Failed to create proactive schedule instance for conversation '%s'",
+                    conv.id,
+                    exc_info=True,
+                )
                 continue
         return conv
     except CharacterNotFoundError:

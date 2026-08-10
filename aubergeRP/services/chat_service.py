@@ -574,7 +574,8 @@ class ChatService:
                 from ..services.schedule_instance_service import ScheduleInstanceService
 
                 ScheduleInstanceService(self._conversation_service.data_dir).rebase_event_triggers_on_user_message(
-                    conversation_id
+                    conversation_id,
+                    user_message_at=user_message.timestamp,
                 )
 
         text_connector = self._connector_manager.get_active_text_connector()

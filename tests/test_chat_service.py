@@ -1188,6 +1188,31 @@ async def test_stream_schedule_tool_cancel_deletes_runtime_schedule(tmp_path):
     assert all(r.schedule_def_id != "followup" for r in rows)
 
 
+async def test_stream_chat_rebases_event_triggers_with_persisted_user_timestamp(tmp_path, monkeypatch):
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, _FakeText(["Hello"]), None)
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+
+    captured: dict[str, Any] = {}
+
+    def _capture_rebase(self, conversation_id: str, *, user_message_at=None):
+        captured["conversation_id"] = conversation_id
+        captured["user_message_at"] = user_message_at
+        return 0
+
+    monkeypatch.setattr(
+        "aubergeRP.services.schedule_instance_service.ScheduleInstanceService.rebase_event_triggers_on_user_message",
+        _capture_rebase,
+    )
+
+    await collect(svc.stream_chat(conv.id, "Hi there"))
+
+    reloaded = conv_svc.get_conversation(conv.id)
+    last_user_message = [m for m in reloaded.messages if m.role == "user"][-1]
+    assert captured["conversation_id"] == conv.id
+    assert captured["user_message_at"] == last_user_message.timestamp
+
+
 # ---------------------------------------------------------------------------
 # No image connector — conversation-only mode
 # ---------------------------------------------------------------------------

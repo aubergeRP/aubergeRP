@@ -298,6 +298,23 @@ class TestScheduleInstanceService:
         )
         assert created is False
 
+    def test_get_or_create_dedupes_identical_schedule_with_different_id(self, svc: ScheduleInstanceService) -> None:
+        defn_a = _make_defn(defn_id="followup-a", instruction="Check in naturally.")
+        defn_b = _make_defn(defn_id="followup-b", instruction="  check in naturally.  ")
+        inst_a, created_a = svc.get_or_create(
+            defn=defn_a, character_id="char1", conversation_id="conv1",
+            channel="web", channel_instance_id="web", external_user_id="u1",
+            external_chat_id="", timezone="UTC",
+        )
+        inst_b, created_b = svc.get_or_create(
+            defn=defn_b, character_id="char1", conversation_id="conv1",
+            channel="web", channel_instance_id="web", external_user_id="u1",
+            external_chat_id="", timezone="UTC",
+        )
+        assert created_a is True
+        assert created_b is False
+        assert inst_b.id == inst_a.id
+
     def test_independent_instances_per_conversation(self, svc: ScheduleInstanceService) -> None:
         """Same character+schedule, different conversations → independent instances."""
         defn = _make_defn()
@@ -528,6 +545,9 @@ class TestProactiveScheduler:
         # Schedule should still advance (delivery failure does not prevent next trigger)
         refreshed = svc.get_instance(inst.id)
         assert refreshed.last_run_at is not None
+        assert refreshed.last_execution_status == "failed"
+        assert refreshed.last_execution_reason == "delivery_failed"
+        assert refreshed.last_sent_at is None
 
     @pytest.mark.asyncio
     async def test_restart_recovers_stale_lock(self, data_dir: Path) -> None:
