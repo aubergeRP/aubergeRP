@@ -11,9 +11,11 @@ Token security contract
 """
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -33,7 +35,7 @@ class TelegramBotConflictError(ValueError):
 
 
 class TelegramBotSummary(BaseModel):
-    """Safe public view of a bot — no token."""
+    """Safe public view of a bot — no token, no raw webhook_secret."""
 
     id: str
     name: str
@@ -44,6 +46,11 @@ class TelegramBotSummary(BaseModel):
     telegram_username: str
     last_tested_at: datetime | None
     last_error: str
+    update_mode: str
+    webhook_url: str
+    # True when a webhook secret is configured; the raw value is never returned.
+    webhook_secret_set: bool
+    webhook_last_error: str
     created_at: datetime
     updated_at: datetime
 
@@ -54,6 +61,9 @@ class TelegramBotCreate(BaseModel):
     character_id: str
     enabled: bool = False
     dialogue_only: bool = False
+    update_mode: Literal["polling", "webhook"] = "polling"
+    webhook_url: str = ""
+    webhook_secret: str = ""
 
 
 class TelegramBotUpdate(BaseModel):
@@ -63,6 +73,10 @@ class TelegramBotUpdate(BaseModel):
     character_id: str | None = None
     enabled: bool | None = None
     dialogue_only: bool | None = None
+    update_mode: Literal["polling", "webhook"] | None = None
+    webhook_url: str | None = None
+    # If None, keep the existing secret. Pass "" to clear it.
+    webhook_secret: str | None = None
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -82,6 +96,10 @@ def _row_to_summary(row: TelegramBotRow) -> TelegramBotSummary:
         telegram_username=row.telegram_username,
         last_tested_at=_ensure_utc(row.last_tested_at) if row.last_tested_at else None,
         last_error=row.last_error,
+        update_mode=row.update_mode,
+        webhook_url=row.webhook_url,
+        webhook_secret_set=bool(row.webhook_secret),
+        webhook_last_error=row.webhook_last_error,
         created_at=_ensure_utc(row.created_at),
         updated_at=_ensure_utc(row.updated_at),
     )
@@ -126,6 +144,9 @@ class TelegramBotService:
             character_id=data.character_id,
             enabled=data.enabled,
             dialogue_only=data.dialogue_only,
+            update_mode=data.update_mode,
+            webhook_url=data.webhook_url,
+            webhook_secret=data.webhook_secret,
             created_at=now,
             updated_at=now,
         )
@@ -151,6 +172,13 @@ class TelegramBotService:
                 row.enabled = data.enabled
             if data.dialogue_only is not None:
                 row.dialogue_only = data.dialogue_only
+            if data.update_mode is not None:
+                row.update_mode = data.update_mode
+            if data.webhook_url is not None:
+                row.webhook_url = data.webhook_url
+            if data.webhook_secret is not None:
+                # Allow explicit "" to clear the secret; otherwise keep existing.
+                row.webhook_secret = data.webhook_secret
             row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()
@@ -199,6 +227,31 @@ class TelegramBotService:
             session.commit()
             session.refresh(row)
             return _row_to_summary(row)
+
+    def record_webhook_error(self, bot_id: str, error: str) -> TelegramBotSummary:
+        with self._get_session() as session:
+            row = session.get(TelegramBotRow, bot_id)
+            if row is None:
+                raise TelegramBotNotFoundError(bot_id)
+            row.webhook_last_error = error
+            row.updated_at = datetime.now(UTC)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return _row_to_summary(row)
+
+    def get_bot_webhook_secret(self, bot_id: str) -> str:
+        """Return the raw webhook secret — for internal use by the router only."""
+        with self._get_session() as session:
+            row = session.get(TelegramBotRow, bot_id)
+            if row is None:
+                raise TelegramBotNotFoundError(bot_id)
+            return row.webhook_secret
+
+    def generate_webhook_secret(self, bot_id: str) -> TelegramBotSummary:
+        """Generate and persist a new cryptographic webhook secret for the bot."""
+        new_secret = secrets.token_urlsafe(32)
+        return self.update_bot(bot_id, TelegramBotUpdate(webhook_secret=new_secret))
 
     def list_enabled_bots_with_tokens(self) -> list[tuple[TelegramBotSummary, str]]:
         """Return [(summary, token)] for all enabled bots.  Internal use only."""
