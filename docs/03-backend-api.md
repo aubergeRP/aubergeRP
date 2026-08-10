@@ -772,3 +772,148 @@ Get Statistics
 | `top` | query | integer | no |  |
 
 **Responses:** `200` Successful Response · `422` Validation Error
+
+
+## Telegram
+
+### `GET /api/telegram/bots/`
+
+List Bots
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `POST /api/telegram/bots/`
+
+Create Bot
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string | yes |
+| `token` | string | yes |
+| `character_id` | string | yes |
+| `enabled` | boolean | no |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `201` Successful Response · `422` Validation Error
+
+### `GET /api/telegram/bots/{bot_id}`
+
+Get Bot
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `PATCH /api/telegram/bots/{bot_id}`
+
+Update Bot
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string | null | no |
+| `token` | string | null | no |
+| `character_id` | string | null | no |
+| `enabled` | boolean | null | no |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `DELETE /api/telegram/bots/{bot_id}`
+
+Delete Bot
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `204` Successful Response · `422` Validation Error
+
+### `POST /api/telegram/bots/{bot_id}/enable`
+
+Enable Bot
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `POST /api/telegram/bots/{bot_id}/disable`
+
+Disable Bot
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `POST /api/telegram/bots/{bot_id}/test`
+
+Test Bot
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/telegram/bots/{bot_id}/status`
+
+Bot Status
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error

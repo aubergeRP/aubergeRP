@@ -35,6 +35,7 @@
     <button class="nav-btn" data-section="config">Configuration</button>
     <button class="nav-btn" data-section="customize">Customization</button>
     <button class="nav-btn" data-section="prompts">Prompts</button>
+    <button class="nav-btn" data-section="telegram">Telegram Bots</button>
   </nav>
 
   <!-- Content area -->
@@ -260,6 +261,20 @@
       </div>
     </section>
 
+    <!-- ── Telegram Bots ── -->
+    <section id="section-telegram" class="admin-section" style="display:none" aria-label="Telegram Bots">
+      <div class="section-header">
+        <h1>Telegram Bots</h1>
+        <button class="btn btn-primary" id="tg-add-bot-btn">+ Add Bot</button>
+      </div>
+      <p style="margin-bottom:1rem;color:var(--color-muted,#888);font-size:0.9rem;">
+        Each bot has its own token and linked character. Tokens are never displayed after saving.
+      </p>
+      <div id="tg-bot-list" class="connector-list" aria-live="polite">
+        <div class="loading-row">Loading…</div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -417,6 +432,40 @@
     <div class="dialog-actions">
       <button class="btn btn-secondary" id="char-dialog-cancel">Cancel</button>
       <button class="btn btn-primary" id="char-dialog-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Telegram Bot Dialog ── -->
+<div id="tg-dialog" class="dialog-backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="tg-dialog-title">
+  <div class="dialog">
+    <div class="dialog-header">
+      <h2 id="tg-dialog-title">Add Telegram Bot</h2>
+      <button class="dialog-close" id="tg-dialog-close" aria-label="Close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="field-row">
+        <label for="tg-bot-name">Display Name <span class="required">*</span></label>
+        <input type="text" id="tg-bot-name" autocomplete="off" placeholder="Alice Bot">
+      </div>
+      <div class="field-row">
+        <label for="tg-bot-token">Bot Token <span class="required">*</span></label>
+        <input type="password" id="tg-bot-token" autocomplete="off" placeholder="123456:ABC-DEF…">
+        <span id="tg-token-hint" class="field-hint" style="display:none">Leave blank to keep existing token.</span>
+      </div>
+      <div class="field-row">
+        <label for="tg-bot-char">Character <span class="required">*</span></label>
+        <select id="tg-bot-char"></select>
+      </div>
+      <div class="field-row">
+        <label for="tg-bot-enabled">Enabled</label>
+        <input type="checkbox" id="tg-bot-enabled">
+      </div>
+    </div>
+    <div class="dialog-footer" id="tg-dialog-feedback"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-secondary" id="tg-dialog-cancel">Cancel</button>
+      <button class="btn btn-primary" id="tg-dialog-save">Save</button>
     </div>
   </div>
 </div>
