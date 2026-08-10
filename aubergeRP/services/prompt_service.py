@@ -90,6 +90,14 @@ PROMPT_META: dict[str, dict[str, str]] = {
             "Helps prevent empty responses when using models like DeepSeek-R1 or Qwen3."
         ),
     },
+    "dialogue_only_instruction": {
+        "label": "Dialogue-Only Channel Instruction",
+        "description": (
+            "Injected as a late system message when narration_mode='dialogue_only' is active. "
+            "Instructs the model to reply only with text the character would actually send, "
+            "suppressing narration, actions, and scene descriptions."
+        ),
+    },
     "image_prompt": {
         "label": "Image Prompt Template",
         "description": (

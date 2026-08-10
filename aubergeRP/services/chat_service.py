@@ -33,6 +33,7 @@ _IMAGE_PROMPT_MAX_CONTEXT = 6
 class GenerationOptions:
     user_name: str = "User"
     retry_deduplicate_user_message: bool = False
+    narration_mode: Literal["full", "dialogue_only"] = "full"
 
 
 @dataclass(slots=True)
@@ -262,6 +263,7 @@ def build_prompt(
     use_tool_calling: bool = False,
     ooc_guardrail: bool = False,
     nsfw_policy: Literal["none", "block", "allow"] = "none",
+    narration_mode: Literal["full", "dialogue_only"] = "full",
 ) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
 
@@ -315,6 +317,11 @@ def build_prompt(
                 char.data.post_history_instructions, char.data.name, user_name
             ),
         })
+
+    if narration_mode == "dialogue_only":
+        dialogue_only_instruction = get_prompt("dialogue_only_instruction")
+        if dialogue_only_instruction:
+            messages.append({"role": "system", "content": dialogue_only_instruction})
 
     return messages
 
@@ -518,6 +525,7 @@ class ChatService:
             use_tool_calling=use_tools,
             ooc_guardrail=ooc_detected,
             nsfw_policy=nsfw_policy,
+            narration_mode=options.narration_mode,
         )
 
         # Summarize history if the prompt is approaching the token budget.

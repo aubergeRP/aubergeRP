@@ -39,6 +39,7 @@ class TelegramBotSummary(BaseModel):
     name: str
     character_id: str
     enabled: bool
+    dialogue_only: bool
     telegram_bot_id: str
     telegram_username: str
     last_tested_at: datetime | None
@@ -52,6 +53,7 @@ class TelegramBotCreate(BaseModel):
     token: str
     character_id: str
     enabled: bool = False
+    dialogue_only: bool = False
 
 
 class TelegramBotUpdate(BaseModel):
@@ -60,6 +62,7 @@ class TelegramBotUpdate(BaseModel):
     token: str | None = None
     character_id: str | None = None
     enabled: bool | None = None
+    dialogue_only: bool | None = None
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -74,6 +77,7 @@ def _row_to_summary(row: TelegramBotRow) -> TelegramBotSummary:
         name=row.name,
         character_id=row.character_id,
         enabled=row.enabled,
+        dialogue_only=row.dialogue_only,
         telegram_bot_id=row.telegram_bot_id,
         telegram_username=row.telegram_username,
         last_tested_at=_ensure_utc(row.last_tested_at) if row.last_tested_at else None,
@@ -121,6 +125,7 @@ class TelegramBotService:
             token=data.token,
             character_id=data.character_id,
             enabled=data.enabled,
+            dialogue_only=data.dialogue_only,
             created_at=now,
             updated_at=now,
         )
@@ -144,6 +149,8 @@ class TelegramBotService:
                 row.character_id = data.character_id
             if data.enabled is not None:
                 row.enabled = data.enabled
+            if data.dialogue_only is not None:
+                row.dialogue_only = data.dialogue_only
             row.updated_at = datetime.now(UTC)
             session.add(row)
             session.commit()

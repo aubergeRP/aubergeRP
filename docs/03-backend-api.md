@@ -802,6 +802,7 @@ Create Bot
 | `token` | string | yes |
 | `character_id` | string | yes |
 | `enabled` | boolean | no |
+| `dialogue_only` | boolean | no |
 
 **Parameters:**
 
@@ -838,6 +839,7 @@ Update Bot
 | `token` | string | null | no |
 | `character_id` | string | null | no |
 | `enabled` | boolean | null | no |
+| `dialogue_only` | boolean | null | no |
 
 **Parameters:**
 
