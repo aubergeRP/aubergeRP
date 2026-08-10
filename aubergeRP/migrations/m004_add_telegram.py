@@ -57,7 +57,7 @@ def migrate(session: Session) -> None:
     )
     session.execute(
         text(
-            "CREATE INDEX IF NOT EXISTS ix_channel_sessions_external_user_id "
-            "ON channel_sessions (external_user_id)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_sessions_user "
+            "ON channel_sessions (channel, channel_instance_id, external_user_id)"
         )
     )

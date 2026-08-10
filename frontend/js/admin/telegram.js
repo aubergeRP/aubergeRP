@@ -74,7 +74,7 @@ function _renderBot(bot) {
     : '';
 
   const lastErr = bot.last_error
-    ? `<div class="conn-error" title="${bot.last_error}">⚠ ${bot.last_error.slice(0, 80)}</div>`
+    ? `<div class="conn-error" title="${_esc(bot.last_error)}">⚠ ${_esc(bot.last_error.slice(0, 80))}</div>`
     : '';
 
   div.innerHTML = `
@@ -253,7 +253,7 @@ async function _deleteBot(id, name) {
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 function _esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

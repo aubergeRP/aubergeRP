@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, and_, select
 
 from ..db_models import ChannelSessionRow
@@ -33,7 +34,12 @@ class ChannelSessionService:
 
         If no existing mapping is found, a new AubergeRP conversation is created
         and persisted using the provided *character_id*.
+
+        The unique index on (channel, channel_instance_id, external_user_id)
+        prevents duplicate rows even under concurrent access; an IntegrityError
+        on insert is handled by re-fetching the winning row.
         """
+        # First, fast-path check (no new conversation created).
         with self._get_session() as session:
             row = session.exec(
                 select(ChannelSessionRow).where(
@@ -47,8 +53,7 @@ class ChannelSessionService:
             if row is not None:
                 return row.conversation_id, False
 
-        # Create AubergeRP conversation outside the mapping session to avoid
-        # nested session issues.
+        # Create AubergeRP conversation and attempt to insert the mapping.
         char_svc = CharacterService(data_dir=self._data_dir)
         conv_svc = ConversationService(data_dir=self._data_dir, character_service=char_svc)
         conv = conv_svc.create_conversation(character_id=character_id)
@@ -64,11 +69,27 @@ class ChannelSessionService:
             created_at=now,
             updated_at=now,
         )
-        with self._get_session() as session:
-            session.add(mapping)
-            session.commit()
-
-        return conv.id, True
+        try:
+            with self._get_session() as session:
+                session.add(mapping)
+                session.commit()
+            return conv.id, True
+        except IntegrityError:
+            # A concurrent request already inserted a row for this user+bot.
+            # Return the winner's conversation instead.
+            with self._get_session() as session:
+                row = session.exec(
+                    select(ChannelSessionRow).where(
+                        and_(
+                            ChannelSessionRow.channel == channel,
+                            ChannelSessionRow.channel_instance_id == channel_instance_id,
+                            ChannelSessionRow.external_user_id == external_user_id,
+                        )
+                    )
+                ).first()
+                if row is not None:
+                    return row.conversation_id, False
+            return conv.id, True
 
     def reset(
         self,

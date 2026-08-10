@@ -83,7 +83,7 @@ def update_bot(
 
 
 @router.delete("/bots/{bot_id}", status_code=204)
-def delete_bot(
+async def delete_bot(
     bot_id: str,
     svc: TelegramBotService = Depends(get_telegram_service),
     _token: str = Depends(get_admin_token),
@@ -93,11 +93,13 @@ def delete_bot(
     except TelegramBotNotFoundError:
         raise _not_found(bot_id)
     # Also stop the bot if it is running.
-    _get_manager_and_stop(bot_id)
+    mgr = _get_manager()
+    if mgr is not None:
+        await mgr.stop_bot(bot_id)
 
 
 @router.post("/bots/{bot_id}/enable", response_model=TelegramBotSummary)
-def enable_bot(
+async def enable_bot(
     bot_id: str,
     svc: TelegramBotService = Depends(get_telegram_service),
     _token: str = Depends(get_admin_token),
@@ -106,12 +108,15 @@ def enable_bot(
         result = svc.set_enabled(bot_id, True)
     except TelegramBotNotFoundError:
         raise _not_found(bot_id)
-    _get_manager_and_start(bot_id)
+    mgr = _get_manager()
+    if mgr is not None:
+        token = svc.get_bot_token(bot_id)
+        await mgr.start_bot(bot_id, token, result.character_id)
     return result
 
 
 @router.post("/bots/{bot_id}/disable", response_model=TelegramBotSummary)
-def disable_bot(
+async def disable_bot(
     bot_id: str,
     svc: TelegramBotService = Depends(get_telegram_service),
     _token: str = Depends(get_admin_token),
@@ -120,15 +125,13 @@ def disable_bot(
         result = svc.set_enabled(bot_id, False)
     except TelegramBotNotFoundError:
         raise _not_found(bot_id)
-    _get_manager_and_stop(bot_id)
+    mgr = _get_manager()
+    if mgr is not None:
+        await mgr.stop_bot(bot_id)
     return result
 
 
 # ── Test connection ───────────────────────────────────────────────────────────
-
-
-class TestConnectionResponse(TelegramBotSummary):
-    pass
 
 
 @router.post("/bots/{bot_id}/test", response_model=TelegramBotSummary)
@@ -198,38 +201,6 @@ def _get_manager() -> TelegramRuntimeManager | None:
         return mgr
     except (ImportError, AttributeError):
         return None
-
-
-def _get_manager_and_start(bot_id: str) -> None:
-    import asyncio
-    mgr = _get_manager()
-    if mgr is None:
-        return
-    from ..config import get_config
-    from ..services.telegram_bot_service import TelegramBotService
-    svc = TelegramBotService(get_config().app.data_dir)
-    try:
-        summary = svc.get_bot(bot_id)
-        token = svc.get_bot_token(bot_id)
-    except TelegramBotNotFoundError:
-        return
-    try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(mgr.start_bot(bot_id, token, summary.character_id))
-    except RuntimeError:
-        pass
-
-
-def _get_manager_and_stop(bot_id: str) -> None:
-    import asyncio
-    mgr = _get_manager()
-    if mgr is None:
-        return
-    try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(mgr.stop_bot(bot_id))
-    except RuntimeError:
-        pass
 
 
 def _is_running(bot_id: str) -> bool:

@@ -93,6 +93,9 @@ def delete_character(
     try:
         from ..config import get_config
         from ..services.telegram_bot_service import TelegramBotService
+    except ImportError:
+        pass
+    else:
         tg_svc = TelegramBotService(data_dir=get_config().app.data_dir)
         if tg_svc.character_is_referenced(character_id):
             raise HTTPException(
@@ -100,8 +103,6 @@ def delete_character(
                 detail="Character is referenced by one or more Telegram bots. "
                        "Reassign or delete those bots first.",
             )
-    except ImportError:
-        pass
     try:
         service.delete_character(character_id)
     except CharacterNotFoundError:
