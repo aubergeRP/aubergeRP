@@ -276,6 +276,7 @@ class TelegramRuntimeManager:
                 await asyncio.Event().wait()
             except asyncio.CancelledError:
                 logger.info("Telegram bot %s: webhook sentinel stopped", bot_id)
+                raise
         except asyncio.CancelledError:
             logger.info("Telegram bot %s: webhook sentinel cancelled", bot_id)
         except Exception:
