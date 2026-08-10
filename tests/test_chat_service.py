@@ -558,6 +558,8 @@ async def test_stream_connector_error(tmp_path):
     conv = conv_svc.create_conversation(char.id)
     events = await collect(svc.stream_chat(conv.id, "Hi"))
     assert any(e["type"] == "error" for e in events)
+    reloaded = conv_svc.get_conversation(conv.id)
+    assert reloaded.messages == []
 
 
 # ---------------------------------------------------------------------------
@@ -671,8 +673,19 @@ async def test_generate_reply_handles_connector_failure(tmp_path):
         await svc.generate_reply(conv.id, "Hi")
 
     reloaded = conv_svc.get_conversation(conv.id)
-    assert [m.role for m in reloaded.messages] == ["user"]
-    assert [m.content for m in reloaded.messages] == ["Hi"]
+    assert reloaded.messages == []
+
+
+async def test_generate_reply_rolls_back_user_message_when_no_text_connector(tmp_path):
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=None)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    reloaded = conv_svc.get_conversation(conv.id)
+    assert reloaded.messages == []
 
 
 # ---------------------------------------------------------------------------

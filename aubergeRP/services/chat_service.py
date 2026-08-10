@@ -411,6 +411,12 @@ class ChatService:
             and last_msg.content == content
         )
 
+    def _rollback_user_message(self, conversation_id: str, message_id: str | None) -> None:
+        if not message_id:
+            return
+        with suppress(Exception):
+            self._conversation_service.delete_message(conversation_id, message_id)
+
     async def generate_reply(
         self,
         conversation_id: str,
@@ -452,6 +458,7 @@ class ChatService:
         options: GenerationOptions,
     ) -> AsyncIterator[dict[str, Any]]:
         user_name = options.user_name
+        appended_user_message_id: str | None = None
         try:
             conv = self._conversation_service.get_conversation(conversation_id)
             char = self._character_service.get_character(conv.character_id)
@@ -466,7 +473,10 @@ class ChatService:
         )
         if not is_retry:
             try:
-                self._conversation_service.append_message(conversation_id, "user", content)
+                user_message = self._conversation_service.append_message(
+                    conversation_id, "user", content
+                )
+                appended_user_message_id = user_message.id
             except Exception as exc:
                 yield {"type": "error", "detail": str(exc)}
                 return
@@ -479,6 +489,7 @@ class ChatService:
 
         text_connector = self._connector_manager.get_active_text_connector()
         if text_connector is None:
+            self._rollback_user_message(conversation_id, appended_user_message_id)
             yield {"type": "error", "detail": "No active text connector configured"}
             return
 
@@ -516,6 +527,7 @@ class ChatService:
         image_urls: list[str] = []
         image_prompts_by_generation: dict[str, str] = {}
         generated_media: list[tuple[str, str]] = []
+        assistant_persisted = False
         request_tokens = count_prompt_tokens(messages)
         call_started = perf_counter()
         call_success = False
@@ -600,6 +612,7 @@ class ChatService:
             msg = self._conversation_service.append_message(
                 conversation_id, "assistant", full_text, images=image_urls
             )
+            assistant_persisted = True
             if self._media_service is not None and generated_media:
                 self._media_service.record_generated_media(
                     conversation_id=conversation_id,
@@ -634,6 +647,8 @@ class ChatService:
 
         except Exception as exc:
             call_error = str(exc)
+            if not assistant_persisted:
+                self._rollback_user_message(conversation_id, appended_user_message_id)
             logger.exception(
                 "Chat generation failed for conversation %s", conversation_id
             )
