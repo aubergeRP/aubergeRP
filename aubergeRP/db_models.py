@@ -138,6 +138,27 @@ class ChannelSessionRow(SQLModel, table=True):
     updated_at: datetime
 
 
+class UserTimezoneRow(SQLModel, table=True):
+    """Transport-neutral per-user timezone storage.
+
+    Keyed by (channel, channel_instance_id, external_user_id), which mirrors
+    the ChannelSessionRow identity without coupling to a conversation.
+
+    Web sessions use channel="web", channel_instance_id="web".
+    Telegram sessions use channel="telegram", channel_instance_id=<bot_id>.
+    """
+
+    __tablename__ = "user_timezones"
+
+    id: str = Field(primary_key=True)
+    channel: str = Field(index=True)
+    channel_instance_id: str = Field(index=True)
+    external_user_id: str = Field(index=True)
+    # IANA timezone identifier, e.g. "Europe/Paris"
+    timezone: str
+    updated_at: datetime
+
+
 class SchemaMigration(SQLModel, table=True):
     """Tracks which migrations have been applied."""
 

@@ -38,6 +38,7 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         m003_add_media_library,  # noqa: PLC0415
         m004_add_telegram,  # noqa: PLC0415
         m005_add_dialogue_only,  # noqa: PLC0415
+        m006_add_timezone,  # noqa: PLC0415
     )
     return {
         1: ("Initial schema and JSON import", m001_initial.migrate),
@@ -45,6 +46,7 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         3: ("Add media library table and backfill", m003_add_media_library.migrate),
         4: ("Add telegram_bots and channel_sessions tables", m004_add_telegram.migrate),
         5: ("Add dialogue_only column to telegram_bots", m005_add_dialogue_only.migrate),
+        6: ("Add user_timezones table", m006_add_timezone.migrate),
     }
 
 

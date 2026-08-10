@@ -177,6 +177,7 @@ class TelegramRuntimeManager:
             # Safe info only — no token, no internal IDs
             from .character_service import CharacterService
             from .telegram_bot_service import TelegramBotService
+            from .timezone_service import TimezoneService
             svc = TelegramBotService(self._data_dir)
             try:
                 summary = svc.get_bot(bot_id)
@@ -190,12 +191,47 @@ class TelegramRuntimeManager:
                 char_name = char.data.name
             except Exception:
                 pass
+            user_id = str(message.from_user.id) if message.from_user else "0"
+            tz_svc = TimezoneService(self._data_dir)
+            tz_name = tz_svc.get_timezone_name("telegram", bot_id, user_id)
+            tz_line = f"🌍 Timezone: {tz_name}" if tz_name else "🌍 Timezone: not set (use /timezone Europe/Paris)"
             status_text = (
                 f"🤖 Bot: {summary.name}\n"
                 f"👤 Character: {char_name}\n"
-                f"🟢 Status: {'Running' if self.is_running(bot_id) else 'Stopped'}"
+                f"🟢 Status: {'Running' if self.is_running(bot_id) else 'Stopped'}\n"
+                f"{tz_line}"
             )
             await message.answer(status_text)
+
+        @dp.message(Command("timezone"))
+        async def on_timezone(message: Message) -> None:
+            if not self._is_private(message):
+                return
+            from .timezone_service import InvalidTimezoneError, TimezoneService
+            user_id = str(message.from_user.id) if message.from_user else "0"
+            text = message.text or ""
+            # Extract argument after /timezone
+            parts = text.split(None, 1)
+            if len(parts) < 2 or not parts[1].strip():
+                tz_svc = TimezoneService(self._data_dir)
+                tz_name = tz_svc.get_timezone_name("telegram", bot_id, user_id)
+                if tz_name:
+                    await message.answer(f"🌍 Your current timezone: {tz_name}\n\nTo change it: /timezone Europe/Paris")
+                else:
+                    await message.answer(
+                        "🌍 No timezone configured.\n\nUse: /timezone <IANA name>\nExample: /timezone Europe/Paris"
+                    )
+                return
+            tz_arg = parts[1].strip()
+            tz_svc = TimezoneService(self._data_dir)
+            try:
+                await asyncio.get_running_loop().run_in_executor(
+                    None, tz_svc.set_timezone, "telegram", bot_id, user_id, tz_arg
+                )
+            except InvalidTimezoneError as exc:
+                await message.answer(f"❌ {exc}")
+                return
+            await message.answer(f"✅ Timezone set to: {tz_arg}")
 
         @dp.message(F.chat.type == "private")
         async def on_message(message: Message) -> None:

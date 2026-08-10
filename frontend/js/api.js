@@ -168,3 +168,17 @@ export async function generateSceneImage(conversationId) {
   }
   return res; // caller reads .body as SSE stream
 }
+
+// ── Timezone ─────────────────────────────────────────────────────────────────
+
+export function fetchTimezone() {
+  return apiFetch('/api/timezone/');
+}
+
+export function updateTimezone(timezone) {
+  return apiFetch('/api/timezone/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timezone }),
+  });
+}

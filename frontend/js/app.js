@@ -2,6 +2,7 @@ import { applyGuiCustomization } from '/js/gui-customization.js';
 import { initStatusBar, initHeaderLogo } from '/js/layout.js';
 import { initCharacters, loadCharacters, setSelectedCharacter } from '/js/characters.js';
 import { initChat, onCharacterSelected, showToast } from '/js/chat.js';
+import { fetchTimezone, updateTimezone } from '/js/api.js';
 
 initStatusBar();
 initHeaderLogo();
@@ -55,3 +56,38 @@ loadCharacters().then(characters => {
   const toSelect = (lastId && characters.find(c => c.id === lastId)) || characters[0];
   onCharSelected(toSelect);
 }).catch(err => showToast('Failed to load characters: ' + err.message));
+
+// ── Timezone detection ────────────────────────────────────────────────────────
+// Detect the browser IANA timezone, compare with stored value, and persist if
+// different.  Failures are silently ignored so they never break the UI.
+const _TZ_STORAGE_KEY = 'auberge_last_tz';
+
+function _detectBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function _syncTimezone() {
+  const detected = _detectBrowserTimezone();
+  if (!detected) return;
+
+  try {
+    const current = await fetchTimezone();
+    if (current.timezone !== detected) {
+      await updateTimezone(detected);
+      // Record the timezone we just sent so we don't re-send on every page load
+      // unless the browser timezone actually changes.
+      localStorage.setItem(_TZ_STORAGE_KEY, detected);
+    } else if (!localStorage.getItem(_TZ_STORAGE_KEY)) {
+      // Server already has the right timezone; cache it locally.
+      localStorage.setItem(_TZ_STORAGE_KEY, detected);
+    }
+  } catch (_) {
+    // Network errors or invalid timezone must not break the app.
+  }
+}
+
+_syncTimezone();

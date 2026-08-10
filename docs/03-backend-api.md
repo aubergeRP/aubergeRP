@@ -919,3 +919,42 @@ Bot Status
 | `x-admin-token` | header | string | no |  |
 
 **Responses:** `200` Successful Response · `422` Validation Error
+
+
+## Timezone
+
+### `GET /api/timezone/`
+
+Get Timezone
+
+Return the IANA timezone stored for this web session, or null.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-session-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `PUT /api/timezone/`
+
+Set Timezone
+
+Validate and persist an IANA timezone for this web session.
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `timezone` | string | yes |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-session-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
