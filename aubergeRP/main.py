@@ -28,6 +28,7 @@ from .routers import health as health_router
 from .routers import images as images_router
 from .routers import media as media_router
 from .routers import prompts as prompts_router
+from .routers import schedules as schedules_router
 from .routers import statistics as statistics_router
 from .routers import telegram as telegram_router
 from .routers import timezone as timezone_router
@@ -311,6 +312,9 @@ def create_app() -> FastAPI:
     from .scheduler import Scheduler
     scheduler = Scheduler(config)
 
+    from .services.proactive_scheduler_service import ProactiveScheduler
+    proactive_scheduler = ProactiveScheduler(config.app.data_dir)
+
     from .services.telegram_runtime_manager import TelegramRuntimeManager
     telegram_manager = TelegramRuntimeManager(config.app.data_dir)
     # Make available to routers via module-level attribute
@@ -320,9 +324,11 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         scheduler.start()
+        proactive_scheduler.start()
         await telegram_manager.start_enabled_bots()
         yield
         await telegram_manager.stop_all()
+        proactive_scheduler.stop()
         scheduler.stop()
 
     app = FastAPI(
@@ -408,6 +414,7 @@ def create_app() -> FastAPI:
     app.include_router(prompts_router.router, prefix="/api")
     app.include_router(telegram_router.router, prefix="/api")
     app.include_router(timezone_router.router, prefix="/api")
+    app.include_router(schedules_router.router, prefix="/api")
 
     # ── API reference (Redoc) ───────────────────────────────────────────────
     @app.get("/api-docs", include_in_schema=False, response_class=HTMLResponse)

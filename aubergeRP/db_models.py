@@ -159,6 +159,45 @@ class UserTimezoneRow(SQLModel, table=True):
     updated_at: datetime
 
 
+class ScheduleInstanceRow(SQLModel, table=True):
+    """Runtime execution state for one character schedule × one conversation.
+
+    A single ``ScheduleDefinition`` in a character card may produce many
+    independent ``ScheduleInstanceRow`` rows — one per (character, schedule,
+    conversation/user/channel) combination.
+
+    The card definition is the source of truth for *what* to do and the default
+    enabled state.  This row tracks *when* it was last run, when it is next due,
+    and prevents duplicate generation through the ``generation_started_at`` lock.
+    """
+
+    __tablename__ = "schedule_instances"
+
+    id: str = Field(primary_key=True)
+    # Matches ScheduleDefinition.id inside the card extensions
+    schedule_def_id: str = Field(index=True)
+    character_id: str = Field(index=True)
+    conversation_id: str = Field(index=True)
+    channel: str        # "telegram" | "web"
+    channel_instance_id: str
+    external_user_id: str
+    external_chat_id: str = ""  # Telegram chat_id, or empty for web
+    # Per-instance runtime override (the card definition is the default)
+    enabled: bool = True
+    # IANA timezone, copied from user_timezones at instance creation / update
+    timezone: str = "UTC"
+    last_run_at: datetime | None = None
+    # Pre-calculated next trigger time (UTC).  Recalculated after each run and
+    # whenever the timezone or schedule definition changes.
+    next_run_at: datetime | None = None
+    # Idempotency lock: set to "now" when generation begins, cleared on success.
+    # Startup recovery clears any leftover non-None value from a previous server
+    # process so the interrupted run can be retried.
+    generation_started_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class SchemaMigration(SQLModel, table=True):
     """Tracks which migrations have been applied."""
 

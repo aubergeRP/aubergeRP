@@ -87,10 +87,16 @@ const fCreatorNotes = document.getElementById('char-creator-notes');
 const fNameError    = document.getElementById('char-name-error');
 const fDescError    = document.getElementById('char-desc-error');
 
+// Schedules section
+const schedulesListEl   = document.getElementById('char-schedules-list');
+const scheduleAddBtn    = document.getElementById('char-schedule-add-btn');
+
 // ── State ────────────────────────────────────────────────────────────────────
 
 let editingId = null;  // null = new, string = existing id
 let pendingAvatarFile = null;
+/** @type {Array<object>} */
+let editingSchedules = [];  // mutable list of schedule definitions
 let showToastFn   = () => {};
 let showConfirmFn = () => Promise.resolve(false);
 
@@ -128,6 +134,20 @@ export function initCharacters({ showToast, showConfirm }) {
   charCancel.addEventListener('click', closeEditDialog);
   charDialog.addEventListener('click', e => { if (e.target === charDialog) closeEditDialog(); });
   charSave.addEventListener('click', handleSave);
+
+  // Schedules
+  scheduleAddBtn.addEventListener('click', () => {
+    editingSchedules.push({
+      id: 'new_schedule_' + Date.now(),
+      enabled: true,
+      type: 'daily_at',
+      time: '09:00',
+      start: null,
+      end: null,
+      instruction: '',
+    });
+    renderSchedules();
+  });
 
   // Avatar upload
   charAvatarUploadBtn.addEventListener('click', () => charAvatarInput.click());
@@ -310,6 +330,8 @@ async function openEditDialog(id) {
       fNegPrompt.value    = d.extensions?.auberge?.negative_prompt || '';
       fCreator.value      = d.creator || '';
       fCreatorNotes.value = d.creator_notes || '';
+      editingSchedules    = JSON.parse(JSON.stringify(d.extensions?.aubergerp?.schedules || []));
+      renderSchedules();
 
       if (char.has_avatar || char.avatar_url) {
         charAvatarImg.src = api.avatarUrl(id);
@@ -328,6 +350,8 @@ async function openEditDialog(id) {
      fSystemPrompt, fTags, fImgPrompt, fNegPrompt, fCreator, fCreatorNotes].forEach(el => { el.value = ''; });
     charAvatarImg.src = '';
     charAvatarImg.style.display = 'none';
+    editingSchedules = [];
+    renderSchedules();
   }
 
   charDialog.style.display = 'flex';
@@ -338,6 +362,7 @@ function closeEditDialog() {
   charDialog.style.display = 'none';
   editingId = null;
   pendingAvatarFile = null;
+  editingSchedules = [];
 }
 
 async function handleSave() {
@@ -367,7 +392,10 @@ async function handleSave() {
       auberge: {
         image_prompt_prefix: fImgPrompt.value.trim(),
         negative_prompt:     fNegPrompt.value.trim(),
-      }
+      },
+      aubergerp: {
+        schedules: collectSchedules(),
+      },
     }
   };
 
@@ -413,4 +441,93 @@ function escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ── Schedule helpers ──────────────────────────────────────────────────────────
+
+function renderSchedules() {
+  if (!schedulesListEl) return;
+  schedulesListEl.innerHTML = '';
+  editingSchedules.forEach((sched, idx) => {
+    const row = document.createElement('div');
+    row.className = 'schedule-row';
+    row.style.cssText = 'border:1px solid var(--color-border,#444);border-radius:6px;padding:0.75rem;margin-bottom:0.5rem;';
+
+    const isWindow = sched.type === 'daily_window';
+    row.innerHTML = `
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.5rem">
+        <input type="text" data-field="id" value="${escHtml(sched.id || '')}" placeholder="Schedule ID" style="flex:1;min-width:8rem" title="Unique schedule ID">
+        <select data-field="type" style="flex:0 0 auto">
+          <option value="daily_at"${sched.type === 'daily_at' ? ' selected' : ''}>daily_at</option>
+          <option value="daily_window"${isWindow ? ' selected' : ''}>daily_window</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:0.25rem;cursor:pointer">
+          <input type="checkbox" data-field="enabled"${sched.enabled ? ' checked' : ''}> Enabled
+        </label>
+        <button type="button" data-action="delete-sched" data-idx="${idx}" style="margin-left:auto" title="Delete schedule">✕</button>
+      </div>
+      <div class="sched-time-fields" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem">
+        <div class="sched-daily-at" style="display:${isWindow ? 'none' : 'flex'};gap:0.5rem;align-items:center">
+          <label>Time (HH:MM)</label>
+          <input type="text" data-field="time" value="${escHtml(sched.time || '09:00')}" placeholder="09:00" style="width:6rem">
+        </div>
+        <div class="sched-daily-window" style="display:${isWindow ? 'flex' : 'none'};gap:0.5rem;align-items:center">
+          <label>Window start</label>
+          <input type="text" data-field="start" value="${escHtml(sched.start || '09:00')}" placeholder="09:00" style="width:6rem">
+          <label>end</label>
+          <input type="text" data-field="end" value="${escHtml(sched.end || '11:00')}" placeholder="11:00" style="width:6rem">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-size:0.82rem;margin-bottom:0.25rem">Instruction</label>
+        <textarea data-field="instruction" rows="2" placeholder="Ask {{user}} how they slept…" style="width:100%;box-sizing:border-box">${escHtml(sched.instruction || '')}</textarea>
+      </div>
+    `;
+
+    // Type toggle
+    row.querySelector('[data-field="type"]').addEventListener('change', e => {
+      const val = e.target.value;
+      editingSchedules[idx].type = val;
+      row.querySelector('.sched-daily-at').style.display = val === 'daily_at' ? 'flex' : 'none';
+      row.querySelector('.sched-daily-window').style.display = val === 'daily_window' ? 'flex' : 'none';
+    });
+
+    // Live sync for text/checkbox fields
+    row.querySelectorAll('[data-field]').forEach(el => {
+      const field = el.dataset.field;
+      if (el.type === 'checkbox') {
+        el.addEventListener('change', () => { editingSchedules[idx][field] = el.checked; });
+      } else if (el.tagName === 'SELECT') {
+        // handled above
+      } else {
+        el.addEventListener('input', () => { editingSchedules[idx][field] = el.value; });
+      }
+    });
+
+    // Delete button
+    row.querySelector('[data-action="delete-sched"]').addEventListener('click', () => {
+      editingSchedules.splice(idx, 1);
+      renderSchedules();
+    });
+
+    schedulesListEl.appendChild(row);
+  });
+}
+
+function collectSchedules() {
+  return editingSchedules.map(s => {
+    const out = {
+      id: s.id || '',
+      enabled: !!s.enabled,
+      type: s.type || 'daily_at',
+      instruction: s.instruction || '',
+    };
+    if (out.type === 'daily_at') {
+      out.time = s.time || '09:00';
+    } else {
+      out.start = s.start || '09:00';
+      out.end   = s.end   || '11:00';
+    }
+    return out;
+  }).filter(s => s.id && s.instruction);
 }

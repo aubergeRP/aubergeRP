@@ -289,13 +289,79 @@ class TelegramRuntimeManager:
     ) -> tuple[str, bool]:
         from .channel_session_service import ChannelSessionService
         svc = ChannelSessionService(self._data_dir)
-        return svc.get_or_create(
+        conv_id, created = svc.get_or_create(
             channel="telegram",
             channel_instance_id=bot_id,
             external_user_id=user_id,
             external_chat_id=chat_id,
             character_id=character_id,
         )
+        self._ensure_schedule_instances(
+            bot_id=bot_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            character_id=character_id,
+            conversation_id=conv_id,
+        )
+        return conv_id, created
+
+    def _ensure_schedule_instances(
+        self,
+        bot_id: str,
+        user_id: str,
+        chat_id: str,
+        character_id: str,
+        conversation_id: str,
+    ) -> None:
+        """Create schedule instances for all enabled schedule definitions in the character card."""
+        try:
+            from ..models.character import ScheduleDefinition
+            from .character_service import CharacterNotFoundError, CharacterService
+            from .schedule_instance_service import ScheduleInstanceService
+            from .timezone_service import TimezoneService
+
+            char_svc = CharacterService(data_dir=self._data_dir)
+            try:
+                char = char_svc.get_character(character_id)
+            except (CharacterNotFoundError, KeyError):
+                return
+
+            ext = char.data.extensions.get("aubergerp", {})
+            schedules_raw = ext.get("schedules", [])
+            if not schedules_raw:
+                return
+
+            tz_svc = TimezoneService(self._data_dir)
+            timezone = tz_svc.get_timezone_name("telegram", bot_id, user_id) or "UTC"
+
+            sched_svc = ScheduleInstanceService(self._data_dir)
+            for raw in schedules_raw:
+                if not isinstance(raw, dict):
+                    continue
+                try:
+                    defn = ScheduleDefinition(**raw)
+                except Exception:
+                    continue
+                try:
+                    sched_svc.get_or_create(
+                        defn=defn,
+                        character_id=character_id,
+                        conversation_id=conversation_id,
+                        channel="telegram",
+                        channel_instance_id=bot_id,
+                        external_user_id=user_id,
+                        external_chat_id=chat_id,
+                        timezone=timezone,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to ensure schedule instance for def '%s' conv '%s'",
+                        defn.id,
+                        conversation_id,
+                        exc_info=True,
+                    )
+        except Exception:
+            logger.warning("_ensure_schedule_instances failed", exc_info=True)
 
     def _reset_session(
         self,

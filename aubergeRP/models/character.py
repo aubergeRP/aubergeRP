@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -9,6 +9,25 @@ from pydantic import BaseModel, Field, field_validator
 class AubergerpExtensions(BaseModel):
     image_prompt_prefix: str = ""
     negative_prompt: str = ""
+
+
+class ScheduleDefinition(BaseModel):
+    """A single schedule entry stored inside a character card extension.
+
+    This is the *definition* of a schedule (what to do and when).
+    Runtime execution state is stored separately in :class:`ScheduleInstanceRow`.
+    """
+
+    id: str = Field(..., min_length=1, max_length=100)
+    enabled: bool = True
+    type: Literal["daily_at", "daily_window"]
+    # Used by daily_at: local time "HH:MM"
+    time: str | None = None
+    # Used by daily_window: local time range "HH:MM"
+    start: str | None = None
+    end: str | None = None
+    # Natural-language instruction passed to the LLM at trigger time
+    instruction: str = Field(..., min_length=1)
 
 
 class CharacterData(BaseModel):
