@@ -70,13 +70,13 @@ class TelegramRuntimeManager:
         from .telegram_bot_service import TelegramBotService
         svc = TelegramBotService(self._data_dir)
         for summary, token in svc.list_enabled_bots_with_tokens():
-            await self.start_bot(summary.id, token, summary.character_id)
+            await self.start_bot(summary.id, token, summary.character_id, summary.dialogue_only)
 
-    async def start_bot(self, bot_id: str, token: str, character_id: str) -> None:
+    async def start_bot(self, bot_id: str, token: str, character_id: str, dialogue_only: bool = False) -> None:
         if bot_id in self._tasks and not self._tasks[bot_id].done():
             return
         task = asyncio.create_task(
-            self._run_bot(bot_id, token, character_id),
+            self._run_bot(bot_id, token, character_id, dialogue_only),
             name=f"telegram-bot-{bot_id}",
         )
         self._tasks[bot_id] = task
@@ -98,7 +98,7 @@ class TelegramRuntimeManager:
             return
         if summary.enabled:
             token = svc.get_bot_token(bot_id)
-            await self.start_bot(bot_id, token, summary.character_id)
+            await self.start_bot(bot_id, token, summary.character_id, summary.dialogue_only)
 
     async def stop_all(self) -> None:
         for bot_id in list(self._tasks):
@@ -110,7 +110,7 @@ class TelegramRuntimeManager:
 
     # ── Internal: run one bot ─────────────────────────────────────────────────
 
-    async def _run_bot(self, bot_id: str, token: str, character_id: str) -> None:
+    async def _run_bot(self, bot_id: str, token: str, character_id: str, dialogue_only: bool = False) -> None:
         try:
             from aiogram import Bot, Dispatcher
             from aiogram.client.default import DefaultBotProperties
@@ -122,7 +122,7 @@ class TelegramRuntimeManager:
             )
             dp = Dispatcher()
 
-            self._register_handlers(dp, bot_id, character_id, bot)
+            self._register_handlers(dp, bot_id, character_id, bot, dialogue_only)
 
             logger.info("Telegram bot %s: starting polling", bot_id)
             await dp.start_polling(bot, handle_signals=False)
@@ -139,6 +139,7 @@ class TelegramRuntimeManager:
         bot_id: str,
         character_id: str,
         bot: Bot,
+        dialogue_only: bool = False,
     ) -> None:
         from aiogram import F
         from aiogram.filters import Command
@@ -212,7 +213,7 @@ class TelegramRuntimeManager:
             lock = self._get_conv_lock(conv_id)
             async with lock:
                 try:
-                    reply_text = await self._generate(conv_id, text)
+                    reply_text = await self._generate(conv_id, text, dialogue_only=dialogue_only)
                 except Exception:
                     logger.exception("Telegram bot %s: generation failed for conv %s", bot_id, conv_id)
                     await message.answer("⚠️ Generation failed. Please try again.")
@@ -277,7 +278,7 @@ class TelegramRuntimeManager:
             character_id=character_id,
         )
 
-    async def _generate(self, conv_id: str, text: str) -> str:
+    async def _generate(self, conv_id: str, text: str, *, dialogue_only: bool = False) -> str:
         from ..config import get_config
         from ..connectors.manager import ConnectorManager
         from ..services.character_service import CharacterService
@@ -310,6 +311,8 @@ class TelegramRuntimeManager:
         result = await svc.generate_reply(
             conversation_id=conv_id,
             content=text,
-            options=GenerationOptions(),
+            options=GenerationOptions(
+                narration_mode="dialogue_only" if dialogue_only else "full",
+            ),
         )
         return result.text

@@ -111,7 +111,7 @@ async def enable_bot(
     mgr = _get_manager()
     if mgr is not None:
         token = svc.get_bot_token(bot_id)
-        await mgr.start_bot(bot_id, token, result.character_id)
+        await mgr.start_bot(bot_id, token, result.character_id, result.dialogue_only)
     return result
 
 

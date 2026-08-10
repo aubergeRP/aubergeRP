@@ -113,6 +113,7 @@ class TelegramBotRow(SQLModel, table=True):
     token: str
     character_id: str
     enabled: bool = False
+    dialogue_only: bool = False
     # Populated after a successful test connection
     telegram_bot_id: str = ""
     telegram_username: str = ""

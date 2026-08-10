@@ -430,7 +430,7 @@ async def test_multiple_bots_can_run_independently(tmp_path):
 
     started: list[str] = []
 
-    async def fake_run(bot_id, token, character_id):
+    async def fake_run(bot_id, token, character_id, dialogue_only=False):
         started.append(bot_id)
         await asyncio.sleep(0.1)
 
@@ -454,7 +454,7 @@ async def test_disabling_one_bot_does_not_stop_others(tmp_path):
 
     mgr = TelegramRuntimeManager(data_dir=data_dir)
 
-    async def fake_run(bot_id, token, character_id):
+    async def fake_run(bot_id, token, character_id, dialogue_only=False):
         await asyncio.sleep(10)
 
     with patch.object(mgr, "_run_bot", side_effect=fake_run):
