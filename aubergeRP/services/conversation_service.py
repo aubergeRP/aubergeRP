@@ -250,6 +250,7 @@ class ConversationService:
                 raise KeyError(f"Message '{message_id}' not found")
 
             session.delete(msg_row)
+            session.flush()
             conv_row = session.get(ConversationRow, conversation_id)
             if conv_row is not None:
                 timestamp_expr = cast(Any, MessageRow.timestamp)
@@ -257,7 +258,6 @@ class ConversationService:
                     select(MessageRow.timestamp)
                     .where(
                         MessageRow.conversation_id == conversation_id,
-                        MessageRow.id != message_id,
                     )
                     .order_by(timestamp_expr.desc())
                 ).first()

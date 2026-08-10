@@ -414,8 +414,15 @@ class ChatService:
     def _rollback_user_message(self, conversation_id: str, message_id: str | None) -> None:
         if not message_id:
             return
-        with suppress(Exception):
+        try:
             self._conversation_service.delete_message(conversation_id, message_id)
+        except Exception:
+            logger.warning(
+                "Failed to roll back user message %s for conversation %s",
+                message_id,
+                conversation_id,
+                exc_info=True,
+            )
 
     async def generate_reply(
         self,
