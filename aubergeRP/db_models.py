@@ -101,6 +101,42 @@ class LLMCallStatRow(SQLModel, table=True):
     created_at: datetime
 
 
+class TelegramBotRow(SQLModel, table=True):
+    """One row per configured Telegram bot."""
+
+    __tablename__ = "telegram_bots"
+
+    id: str = Field(primary_key=True)
+    name: str
+    # Token is stored as-is (secret file storage handled by file_storage).
+    # The API layer never returns this field in plaintext.
+    token: str
+    character_id: str
+    enabled: bool = False
+    # Populated after a successful test connection
+    telegram_bot_id: str = ""
+    telegram_username: str = ""
+    last_tested_at: datetime | None = None
+    last_error: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChannelSessionRow(SQLModel, table=True):
+    """Transport-neutral mapping: external user/chat → AubergeRP conversation."""
+
+    __tablename__ = "channel_sessions"
+
+    id: str = Field(primary_key=True)
+    channel: str = Field(index=True)           # e.g. "telegram"
+    channel_instance_id: str = Field(index=True)  # e.g. TelegramBotRow.id
+    external_user_id: str = Field(index=True)
+    external_chat_id: str
+    conversation_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class SchemaMigration(SQLModel, table=True):
     """Tracks which migrations have been applied."""
 

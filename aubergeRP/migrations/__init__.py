@@ -36,11 +36,13 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         m001_initial,  # noqa: PLC0415
         m002_add_llm_call_stats,  # noqa: PLC0415
         m003_add_media_library,  # noqa: PLC0415
+        m004_add_telegram,  # noqa: PLC0415
     )
     return {
         1: ("Initial schema and JSON import", m001_initial.migrate),
         2: ("Add LLM call statistics table", m002_add_llm_call_stats.migrate),
         3: ("Add media library table and backfill", m003_add_media_library.migrate),
+        4: ("Add telegram_bots and channel_sessions tables", m004_add_telegram.migrate),
     }
 
 

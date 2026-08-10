@@ -5,6 +5,7 @@ import { initMedias }    from '/js/admin/medias.js?v=3';
 import { initConfig }     from '/js/admin/config.js?v=2';
 import { initStatistics } from '/js/admin/statistics.js?v=2';
 import { initPrompts }    from '/js/admin/prompts.js?v=2';
+import { initTelegram }   from '/js/admin/telegram.js?v=1';
 import { applyGuiCustomization } from '/js/gui-customization.js?v=2';
 import { initStatusBar, setStatusItem, initHeaderLogo } from '/js/layout.js?v=2';
 
@@ -17,7 +18,7 @@ async function main() {
   applyGuiCustomization();
 
   // ── Section routing (hash-based) ────────────────────────────────────────
-  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'config', 'customize', 'prompts'];
+  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'config', 'customize', 'prompts', 'telegram'];
   const sectionEls = {};
   const navBtns = {};
 
@@ -42,6 +43,7 @@ async function main() {
     else if (name === 'config') configCtrl.refresh();
     else if (name === 'customize') loadCustomize();
     else if (name === 'prompts') promptsCtrl.refresh();
+    else if (name === 'telegram') telegramCtrl.refresh();
   }
 
   SECTIONS.forEach(s => {
@@ -172,6 +174,7 @@ async function main() {
   const statsCtrl      = initStatistics({ showToast });
   const configCtrl     = initConfig({ showToast });
   const promptsCtrl    = initPrompts({ showToast });
+  const telegramCtrl   = initTelegram({ showToast, showConfirm });
 
   const _customizeEditors = [
     { inputId: 'customize-css', highlightId: 'customize-css-highlight', language: 'css' },
