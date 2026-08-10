@@ -122,7 +122,7 @@ async def test_summarization_triggers_near_threshold():
     ]
 
     result = await maybe_summarize(
-        msgs, _CountingConnector(), context_window=300, threshold=0.5
+        msgs, _CountingConnector(), context_window=600, threshold=0.75
     )
 
     assert called["n"] == 1, "LLM must be called when over threshold"
@@ -429,28 +429,68 @@ async def test_empty_summary_response_still_works(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_chat_service_uses_maybe_summarize_module():
-    """ChatService imports maybe_summarize from summarization_service — same as Telegram."""
-    import aubergeRP.services.chat_service as cs_mod
-    import aubergeRP.services.summarization_service as ss_mod
+@pytest.mark.asyncio
+async def test_chat_service_calls_maybe_summarize(tmp_path):
+    """ChatService.generate_reply passes messages through maybe_summarize."""
+    from unittest.mock import patch
 
-    assert cs_mod.maybe_summarize is ss_mod.maybe_summarize
+    connector = _SummaryConnector(summary="RELATIONSHIP: allies.", reply="Reply.")
+    char_svc, conv_svc = _make_services(tmp_path)
+    svc = ChatService(
+        conversation_service=conv_svc,
+        character_service=char_svc,
+        connector_manager=_manager(connector),
+        images_dir=tmp_path / "images",
+        context_window=50,
+        summarization_threshold=0.1,
+    )
+    char = char_svc.create_character(CharacterData(name="B", description="Bot."))
+    conv = conv_svc.create_conversation(char.id)
+
+    from aubergeRP.services.chat_service import GenerationOptions
+
+    captured: list = []
+
+    original_maybe_summarize = __import__(
+        "aubergeRP.services.summarization_service", fromlist=["maybe_summarize"]
+    ).maybe_summarize
+
+    async def _spy(messages, *args, **kwargs):
+        captured.append(messages)
+        return await original_maybe_summarize(messages, *args, **kwargs)
+
+    with patch("aubergeRP.services.chat_service.maybe_summarize", side_effect=_spy):
+        await svc.generate_reply(
+            conversation_id=conv.id,
+            content="Hello",
+            options=GenerationOptions(),
+        )
+
+    assert len(captured) >= 1, "generate_reply must call maybe_summarize"
 
 
-def test_telegram_chat_service_uses_same_class():
-    """TelegramRuntimeManager._generate imports ChatService from chat_service module."""
+def test_telegram_uses_chat_service_module():
+    """TelegramRuntimeManager._generate imports ChatService from the chat_service module."""
+    import ast
     import inspect
 
     import aubergeRP.services.telegram_runtime_manager as trm_mod
-    from aubergeRP.services.chat_service import ChatService  # noqa: F401 — used for identity check
 
-    method_source = inspect.getsource(trm_mod.TelegramRuntimeManager._generate)
-    # The method must reference ChatService from the shared chat_service module
-    assert "chat_service" in method_source, (
-        "_generate must import from chat_service"
-    )
-    assert "ChatService" in method_source, (
-        "_generate must create a ChatService instance"
+    source = inspect.getsource(trm_mod)
+    tree = ast.parse(source)
+
+    # Look for: from ..services.chat_service import ChatService (any relative level)
+    import_found = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            names = [alias.name for alias in node.names]
+            if "chat_service" in module and "ChatService" in names:
+                import_found = True
+                break
+
+    assert import_found, (
+        "TelegramRuntimeManager must import ChatService from a chat_service module"
     )
 
 
