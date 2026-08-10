@@ -559,3 +559,98 @@ def test_status_endpoint_hides_secrets(client, tmp_path):
     resp = client.get(f"/api/telegram/bots/{bot['id']}/status")
     assert resp.status_code == 200
     assert "top_secret_token" not in resp.text
+
+
+# ── Webhook mode ──────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_webhook_mode_start_uses_run_bot_webhook(tmp_path):
+    from aubergeRP.database import init_db
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+
+    started: list[str] = []
+
+    async def fake_run_webhook(bot_id, token, character_id, dialogue_only=False, webhook_url=""):
+        started.append(bot_id)
+        await asyncio.sleep(0.1)
+
+    with patch.object(mgr, "_run_bot_webhook", side_effect=fake_run_webhook):
+        await mgr.start_bot("bot-wh", "tok", "char1", update_mode="webhook", webhook_url="https://example.com")
+        await asyncio.sleep(0.01)
+        assert mgr.is_running("bot-wh")
+        await mgr.stop_all()
+    assert "bot-wh" in started
+
+
+@pytest.mark.asyncio
+async def test_webhook_mode_stop_calls_delete_webhook(tmp_path):
+    from aubergeRP.database import init_db
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+
+    bot_mock = AsyncMock()
+    bot_mock.delete_webhook = AsyncMock()
+    bot_mock.session = AsyncMock()
+    mgr._bots["bot-wh"] = bot_mock
+    mgr._modes["bot-wh"] = "webhook"
+
+    async def fake_run_webhook(bot_id, token, character_id, dialogue_only=False, webhook_url=""):
+        await asyncio.sleep(10)
+
+    with patch.object(mgr, "_run_bot_webhook", side_effect=fake_run_webhook):
+        await mgr.start_bot("bot-wh", "tok", "char1", update_mode="webhook", webhook_url="https://example.com")
+        await asyncio.sleep(0.01)
+        await mgr.stop_bot("bot-wh")
+    bot_mock.delete_webhook.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_update_feeds_dispatcher(tmp_path):
+    import sys
+
+    from aubergeRP.database import init_db
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+
+    bot_mock = AsyncMock()
+    dp_mock = AsyncMock()
+    dp_mock.feed_update = AsyncMock()
+    mgr._bots["bot-wh"] = bot_mock
+    mgr._dispatchers["bot-wh"] = dp_mock
+
+    update_instance = MagicMock()
+    update_cls = MagicMock()
+    update_cls.model_validate.return_value = update_instance
+
+    aiogram_mock = MagicMock()
+    aiogram_types_mock = MagicMock()
+    aiogram_types_mock.Update = update_cls
+
+    with patch.dict(sys.modules, {"aiogram": aiogram_mock, "aiogram.types": aiogram_types_mock}):
+        await mgr.dispatch_update("bot-wh", {"update_id": 1})
+
+    update_cls.model_validate.assert_called_once_with({"update_id": 1})
+    dp_mock.feed_update.assert_called_once_with(bot_mock, update_instance)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_update_no_op_when_no_dispatcher(tmp_path):
+    from aubergeRP.database import init_db
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+    # No bot/dispatcher registered — should not raise.
+    await mgr.dispatch_update("missing-bot", {"update_id": 99})

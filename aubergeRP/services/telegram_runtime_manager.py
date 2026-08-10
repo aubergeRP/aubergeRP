@@ -279,6 +279,7 @@ class TelegramRuntimeManager:
                 raise
         except asyncio.CancelledError:
             logger.info("Telegram bot %s: webhook sentinel cancelled", bot_id)
+            raise
         except Exception:
             logger.exception("Telegram bot %s: unexpected error in webhook sentinel", bot_id)
         finally:
@@ -431,7 +432,6 @@ class TelegramRuntimeManager:
                         conv_id,
                         text,
                         dialogue_only=dialogue_only,
-                        image_bytes=image_bytes,
                     )
                 except Exception:
                     logger.exception("Telegram bot %s: generation failed for conv %s", bot_id, conv_id)
@@ -439,8 +439,11 @@ class TelegramRuntimeManager:
                     return
 
             # Send generated images first, then text reply.
-            for image_path_str in result.images:
-                image_path = Path(image_path_str)
+            # result.images contains URL paths (/api/images/<session>/<file>).
+            # Resolve each URL to its actual filesystem path via data_dir.
+            for image_url in result.images:
+                filename = Path(image_url).name
+                image_path = Path(self._data_dir) / "images" / "telegram" / filename
                 if image_path.exists():
                     try:
                         chat_id_int = int(chat_id)
@@ -451,8 +454,13 @@ class TelegramRuntimeManager:
                     except Exception:
                         logger.error(
                             "Telegram bot %s: failed to send image %s to conv %s",
-                            bot_id, image_path_str, conv_id,
+                            bot_id, image_url, conv_id,
                         )
+                else:
+                    logger.warning(
+                        "Telegram bot %s: generated image not found on disk: %s",
+                        bot_id, image_path,
+                    )
 
             # Deliver text reply (split if needed) — failure does NOT re-generate.
             chunks = split_message(result.text)
@@ -585,7 +593,6 @@ class TelegramRuntimeManager:
         text: str,
         *,
         dialogue_only: bool = False,
-        image_bytes: bytes | None = None,
     ) -> GenerationResult:
         from ..config import get_config
         from ..connectors.manager import ConnectorManager
@@ -617,28 +624,13 @@ class TelegramRuntimeManager:
             media_service=media_svc,
         )
 
-        # If we received image bytes, save them to a temp file so the chat
-        # service can reference them (ChatService does not accept raw bytes).
-        content = text
-        if image_bytes is not None:
-            import tempfile
-            try:
-                with tempfile.NamedTemporaryFile(
-                    suffix=".jpg", dir=images_dir, delete=False
-                ) as tmp:
-                    tmp.write(image_bytes)
-                    tmp.flush()
-                    tmp_name = tmp.name
-                # Prepend an image marker using the same convention as the
-                # frontend — ChatService will pick it up as an inline image
-                # reference when processing the user message.
-                content = f"[IMG:{tmp_name}] {text}".strip()
-            except Exception:
-                logger.warning("Failed to save incoming Telegram photo to temp file")
-
+        # image_bytes from an incoming photo are not forwarded to the LLM
+        # (ChatService does not support raw vision input).  The "[image]"
+        # placeholder set by the caller already indicates that a photo was
+        # received.
         result = await svc.generate_reply(
             conversation_id=conv_id,
-            content=content,
+            content=text,
             options=GenerationOptions(
                 narration_mode="dialogue_only" if dialogue_only else "full",
             ),
