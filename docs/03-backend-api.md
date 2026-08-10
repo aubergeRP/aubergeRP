@@ -955,6 +955,6 @@ Validate and persist an IANA timezone for this web session.
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `x-session-token` | header | string | no |  |
+| `x-session-token` | header | string | yes | Required; returns 401 if missing |
 
-**Responses:** `200` Successful Response · `422` Validation Error
+**Responses:** `200` Successful Response · `401` Unauthorized (missing token) · `422` Validation Error

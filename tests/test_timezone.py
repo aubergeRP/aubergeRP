@@ -307,7 +307,7 @@ def test_telegram_invalid_timezone_rejected(data_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_telegram_on_timezone_command_valid(data_dir: Path, runtime_manager):
+async def test_telegram_on_timezone_command_valid(data_dir: Path):
     """Test the /timezone handler logic directly by simulating what the handler does."""
     bot_id = "bot-42"
     user_id = "99"
@@ -323,7 +323,7 @@ async def test_telegram_on_timezone_command_valid(data_dir: Path, runtime_manage
 
 
 @pytest.mark.asyncio
-async def test_telegram_on_timezone_command_invalid(data_dir: Path, runtime_manager):
+async def test_telegram_on_timezone_command_invalid(data_dir: Path):
     """Test that an invalid timezone raises InvalidTimezoneError."""
     tz_svc = TimezoneService(data_dir)
     with pytest.raises(InvalidTimezoneError):
