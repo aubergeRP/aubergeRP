@@ -59,6 +59,10 @@ def get_chat_service(
         ooc_protection=config.chat.ooc_protection,
         statistics_service=stats_svc,
         media_service=media_svc,
+        channel="web",
+        channel_instance_id="web",
+        external_user_id=session_token or "web-user",
+        external_chat_id=session_token or "",
     )
 
 

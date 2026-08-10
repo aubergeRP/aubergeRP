@@ -7,7 +7,7 @@ This is an **AubergeRP-specific extension** and is not part of the core Characte
 
 ## Extension format
 
-Schedules are defined inside the `data.extensions.aubergerp` namespace of a Character Card V2 JSON:
+Schedules and proactive defaults are defined inside `data.extensions.aubergerp`:
 
 ```json
 {
@@ -17,6 +17,13 @@ Schedules are defined inside the `data.extensions.aubergerp` namespace of a Char
     "name": "Alice",
     "extensions": {
       "aubergerp": {
+        "proactive": {
+          "enabled": true,
+          "decision_mode": "contextual",
+          "minimum_cooldown_minutes": 180,
+          "maximum_active_schedules_per_conversation": 20,
+          "maximum_scheduling_horizon_minutes": 43200
+        },
         "schedules": [
           {
             "id": "morning_checkin",
@@ -85,6 +92,31 @@ makes the behavior feel more natural.
 
 The window must have `end > start`.  A single trigger is chosen per day;
 the character will not message the user multiple times within the window.
+
+### `after_delay`
+
+Fires after a delay from the latest user message in the conversation.
+
+```json
+{
+  "type": "after_delay",
+  "delay_minutes": 180,
+  "not_before_time": "09:00"
+}
+```
+
+### `after_inactivity`
+
+Fires when the conversation remains inactive for a configured duration.
+
+```json
+{
+  "type": "after_inactivity",
+  "inactivity_minutes": 1440
+}
+```
+
+Event-based triggers are re-based on each new user message and are restart-safe.
 
 ---
 
@@ -240,10 +272,31 @@ An internal system message is injected containing:
 
 ---
 
-## Out of scope (not yet implemented)
+## Proactive decision mode
 
-- Natural-language schedule parsing
-- LLM-created or modified schedules
-- Arbitrary cron expressions
-- Event-based triggers (e.g. "3 hours after last message")
-- Vector memory / semantic retrieval
+When `proactive.decision_mode` is `contextual`, a fired trigger is evaluated by the LLM:
+
+- `SEND(message)` → persist + deliver
+- `SKIP(reason)` → execution recorded as skipped, no assistant message created
+
+Execution outcomes are persisted as `sent`, `skipped`, or `failed`.
+
+## Character tools
+
+For tool-calling-capable LLM backends, characters can use:
+
+- `schedule_proactive_message`
+- `cancel_scheduled_message`
+- `list_scheduled_messages`
+
+Schedules created this way are stored as runtime definitions with origin `character-tool`.
+
+## Limits and safety
+
+`data.extensions.aubergerp.proactive` supports:
+
+- `maximum_active_schedules_per_conversation`
+- `minimum_cooldown_minutes`
+- `maximum_scheduling_horizon_minutes`
+
+Duplicate/near-identical schedules are suppressed per conversation.

@@ -29,6 +29,34 @@
         "depth_prompt_about": "Nemo's psychological depth and the technical specs of the Nautilus.",
         "prompt": "Focus on the atmospheric pressure, the hum of the electric engines, and the vast, alien beauty of the underwater world.",
         "depth": 4
+      },
+      "aubergerp": {
+        "proactive": {
+          "enabled": true,
+          "decision_mode": "contextual",
+          "minimum_cooldown_minutes": 240,
+          "maximum_active_schedules_per_conversation": 12,
+          "maximum_scheduling_horizon_minutes": 20160
+        },
+        "schedules": [
+          {
+            "id": "nautilus_morning_log",
+            "enabled": true,
+            "type": "daily_window",
+            "start": "08:30",
+            "end": "10:00",
+            "instruction": "Share a brief morning observation from the sea and ask {{user}} what horizon they are facing today."
+          },
+          {
+            "id": "silence_of_the_depths",
+            "enabled": true,
+            "type": "after_inactivity",
+            "inactivity_minutes": 1440,
+            "not_before_time": "09:00",
+            "minimum_cooldown_minutes": 1440,
+            "instruction": "If it feels natural, reconnect after a long silence and reference a meaningful prior exchange."
+          }
+        ]
       }
     }
   }

@@ -181,6 +181,14 @@ class ScheduleInstanceRow(SQLModel, table=True):
     id: str = Field(primary_key=True)
     # Matches ScheduleDefinition.id inside the card extensions
     schedule_def_id: str = Field(index=True)
+    trigger_type: str = Field(default="daily_at", index=True)
+    origin: str = Field(default="character-card", index=True)
+    # Persisted runtime schedule definition for tool/admin-created schedules.
+    # For card-origin schedules this can be empty and the definition is loaded
+    # from the character card by schedule_def_id.
+    schedule_json: str = Field(default="")
+    # Normalized duplicate-prevention key within a conversation.
+    dedupe_key: str = Field(default="", index=True)
     character_id: str = Field(index=True)
     conversation_id: str = Field(index=True)
     channel: str        # "telegram" | "web"
@@ -192,6 +200,11 @@ class ScheduleInstanceRow(SQLModel, table=True):
     # IANA timezone, copied from user_timezones at instance creation / update
     timezone: str = "UTC"
     last_run_at: datetime | None = None
+    last_sent_at: datetime | None = None
+    last_execution_at: datetime | None = None
+    # sent | skipped | failed
+    last_execution_status: str = ""
+    last_execution_reason: str = ""
     # Pre-calculated next trigger time (UTC).  Recalculated after each run and
     # whenever the timezone or schedule definition changes.
     next_run_at: datetime | None = None
@@ -199,6 +212,8 @@ class ScheduleInstanceRow(SQLModel, table=True):
     # Startup recovery clears any leftover non-None value from a previous server
     # process so the interrupted run can be retried.
     generation_started_at: datetime | None = None
+    decision_mode: str = "contextual"
+    minimum_cooldown_minutes: int = 0
     created_at: datetime
     updated_at: datetime
 

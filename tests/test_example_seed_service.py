@@ -73,3 +73,20 @@ def test_seed_examples_logs_and_continues_on_error(monkeypatch, tmp_path: Path, 
     assert cards[0].name == "Valid Example"
 
     assert "Failed to import example character 'broken'" in caplog.text
+
+
+def test_bundled_example_cards_round_trip_with_proactive_extensions(tmp_path: Path) -> None:
+    svc = CharacterService(data_dir=tmp_path)
+    examples_dir = Path("aubergeRP/examples/characters")
+    for path in examples_dir.glob("*.json"):
+        card = svc.import_character_json(path.read_bytes(), filename=path.name)
+        exported = svc.export_character_json(card.id)
+        reimported = svc.import_character_json(json.dumps(exported).encode("utf-8"))
+        ext = reimported.data.extensions.get("aubergerp", {})
+        assert isinstance(ext, dict)
+        proactive = ext.get("proactive", {})
+        schedules = ext.get("schedules", [])
+        assert isinstance(proactive, dict)
+        assert isinstance(schedules, list)
+        for sched in schedules:
+            assert sched.get("type") in {"daily_at", "daily_window", "after_delay", "after_inactivity"}

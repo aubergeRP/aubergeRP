@@ -1110,6 +1110,84 @@ async def test_stream_image_tool_call_uses_llm_enhanced_prompt(tmp_path):
     assert img_conn.last_prompt == "llm enhanced tool call prompt"
 
 
+async def test_stream_schedule_tool_creates_runtime_schedule(tmp_path):
+    class _ToolCallText:
+        connector_type = "text"
+        supports_tool_calling = True
+
+        async def stream_chat_completion_with_tools(self, messages, tools, **kw):
+            yield {
+                "type": "tool_call",
+                "name": "schedule_proactive_message",
+                "arguments": {
+                    "id": "followup",
+                    "type": "after_delay",
+                    "delay_minutes": 60,
+                    "instruction": "Check back naturally.",
+                },
+            }
+            yield {"type": "token", "content": "Noted."}
+
+        async def test_connection(self):
+            return {}
+
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, _ToolCallText(), None)
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+    await collect(svc.stream_chat(conv.id, "Remind me later"))
+
+    from aubergeRP.services.schedule_instance_service import ScheduleInstanceService
+
+    rows = ScheduleInstanceService(tmp_path).list_for_conversation(conv.id)
+    assert any(r.schedule_def_id == "followup" and r.origin == "character-tool" for r in rows)
+
+
+async def test_stream_schedule_tool_cancel_deletes_runtime_schedule(tmp_path):
+    class _ToolCallText:
+        connector_type = "text"
+        supports_tool_calling = True
+
+        async def stream_chat_completion_with_tools(self, messages, tools, **kw):
+            yield {
+                "type": "tool_call",
+                "name": "cancel_scheduled_message",
+                "arguments": {"id": "followup"},
+            }
+            yield {"type": "token", "content": "Cancelled."}
+
+        async def test_connection(self):
+            return {}
+
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, _ToolCallText(), None)
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+    from aubergeRP.models.character import ScheduleDefinition
+    from aubergeRP.services.schedule_instance_service import ScheduleInstanceService
+
+    sched_svc = ScheduleInstanceService(tmp_path)
+    sched_svc.get_or_create(
+        defn=ScheduleDefinition(
+            id="followup",
+            enabled=True,
+            type="after_delay",
+            delay_minutes=60,
+            instruction="Check back naturally.",
+        ),
+        character_id=char.id,
+        conversation_id=conv.id,
+        channel="web",
+        channel_instance_id="web",
+        external_user_id="u1",
+        external_chat_id="",
+        timezone="UTC",
+        origin="character-tool",
+    )
+
+    await collect(svc.stream_chat(conv.id, "cancel it"))
+    rows = sched_svc.list_for_conversation(conv.id)
+    assert all(r.schedule_def_id != "followup" for r in rows)
+
+
 # ---------------------------------------------------------------------------
 # No image connector — conversation-only mode
 # ---------------------------------------------------------------------------

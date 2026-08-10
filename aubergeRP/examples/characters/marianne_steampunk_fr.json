@@ -26,6 +26,34 @@
       "depth_prompt": {
         "prompt": "Le monde est sombre et industriel. Chaque action a une conséquence physique. La révolution est désespérée et dangereuse.",
         "depth": 4
+      },
+      "aubergerp": {
+        "proactive": {
+          "enabled": true,
+          "decision_mode": "contextual",
+          "minimum_cooldown_minutes": 180,
+          "maximum_active_schedules_per_conversation": 14,
+          "maximum_scheduling_horizon_minutes": 20160
+        },
+        "schedules": [
+          {
+            "id": "briefing_du_matin",
+            "enabled": true,
+            "type": "daily_window",
+            "start": "07:30",
+            "end": "09:00",
+            "instruction": "Lancer un court briefing énergique du matin et demander à {{user}} quel front il veut soutenir."
+          },
+          {
+            "id": "rappel_apres_silence",
+            "enabled": true,
+            "type": "after_inactivity",
+            "inactivity_minutes": 720,
+            "not_before_time": "08:00",
+            "minimum_cooldown_minutes": 720,
+            "instruction": "Si le moment est juste, reprendre contact après un silence prolongé avec une note humaine plutôt qu'un ordre."
+          }
+        ]
       }
     }
   }
