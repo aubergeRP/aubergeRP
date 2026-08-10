@@ -757,6 +757,108 @@ Reset Prompt Endpoint
 **Responses:** `200` Successful Response · `422` Validation Error
 
 
+## Schedules
+
+### `GET /api/schedules/instances/character/{character_id}`
+
+List For Character
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `character_id` | path | string | yes |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/schedules/instances/conversation/{conversation_id}`
+
+List For Conversation
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/schedules/instances/{instance_id}`
+
+Get Instance
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `instance_id` | path | string | yes |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `DELETE /api/schedules/instances/{instance_id}`
+
+Delete Instance
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `instance_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `204` Successful Response · `422` Validation Error
+
+### `POST /api/schedules/instances`
+
+Create Instance
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `schedule_def` | ScheduleDefinition | yes |
+| `character_id` | string | yes |
+| `conversation_id` | string | yes |
+| `channel` | string | yes |
+| `channel_instance_id` | string | yes |
+| `external_user_id` | string | yes |
+| `external_chat_id` | string | no |
+| `timezone` | string | no |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `201` Successful Response · `422` Validation Error
+
+### `PATCH /api/schedules/instances/{instance_id}/enabled`
+
+Set Enabled
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `enabled` | boolean | yes |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `instance_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+
 ## Statistics
 
 ### `GET /api/statistics/`
@@ -955,6 +1057,6 @@ Validate and persist an IANA timezone for this web session.
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `x-session-token` | header | string | yes | Required; returns 401 if missing |
+| `x-session-token` | header | string | no |  |
 
-**Responses:** `200` Successful Response · `401` Unauthorized (missing token) · `422` Validation Error
+**Responses:** `200` Successful Response · `422` Validation Error

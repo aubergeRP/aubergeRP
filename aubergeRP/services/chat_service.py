@@ -34,6 +34,7 @@ class GenerationOptions:
     user_name: str = "User"
     retry_deduplicate_user_message: bool = False
     narration_mode: Literal["full", "dialogue_only"] = "full"
+    is_proactive: bool = False
 
 
 @dataclass(slots=True)
@@ -264,6 +265,7 @@ def build_prompt(
     ooc_guardrail: bool = False,
     nsfw_policy: Literal["none", "block", "allow"] = "none",
     narration_mode: Literal["full", "dialogue_only"] = "full",
+    proactive_injection: str | None = None,
 ) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
 
@@ -323,6 +325,9 @@ def build_prompt(
         if dialogue_only_instruction:
             messages.append({"role": "system", "content": dialogue_only_instruction})
 
+    if proactive_injection:
+        messages.append({"role": "system", "content": proactive_injection})
+
     return messages
 
 
@@ -339,6 +344,7 @@ class ChatService:
         ooc_protection: bool = True,
         statistics_service: StatisticsService | None = None,
         media_service: MediaService | None = None,
+        proactive_injection: str | None = None,
     ) -> None:
         self._conversation_service = conversation_service
         self._character_service = character_service
@@ -350,6 +356,7 @@ class ChatService:
         self._ooc_protection = ooc_protection
         self._statistics_service = statistics_service
         self._media_service = media_service
+        self._proactive_injection = proactive_injection
 
     def _resolve_text_connector_metadata(self, text_connector: Any) -> tuple[str, str, str]:
         connector_id = ""
@@ -481,11 +488,12 @@ class ChatService:
             return
 
         # Frontend retries should not duplicate the user turn.
+        # Proactive events have no user turn to add.
         is_retry = (
             options.retry_deduplicate_user_message
             and self._is_retry_message(conv, content)
         )
-        if not is_retry:
+        if not is_retry and not options.is_proactive:
             try:
                 user_message = self._conversation_service.append_message(
                     conversation_id, "user", content
@@ -526,6 +534,7 @@ class ChatService:
             ooc_guardrail=ooc_detected,
             nsfw_policy=nsfw_policy,
             narration_mode=options.narration_mode,
+            proactive_injection=self._proactive_injection,
         )
 
         # Summarize history if the prompt is approaching the token budget.

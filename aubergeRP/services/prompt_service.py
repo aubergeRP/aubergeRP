@@ -106,6 +106,14 @@ PROMPT_META: dict[str, dict[str, str]] = {
             "{recent_exchanges}, and {raw_keywords} placeholders."
         ),
     },
+    "proactive_event": {
+        "label": "Proactive Event Injection",
+        "description": (
+            "Injected as a late system message when a scheduled proactive message is triggered. "
+            "Tells the character why it is initiating the conversation. "
+            "Supports {{local_time}} and {{instruction}} placeholders."
+        ),
+    },
 }
 
 

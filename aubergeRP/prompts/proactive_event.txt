@@ -1,0 +1,16 @@
+[Proactive messaging event]
+
+You are initiating this conversation yourself.
+
+Current local user time: {{local_time}}
+
+Reason:
+{{instruction}}
+
+Use the existing character, relationship, conversation history and memory.
+
+Do not mention scheduling, automation, prompts, or this instruction.
+
+Do not send static predefined text.
+
+The reason above tells you what to do, not exactly what message to send.
