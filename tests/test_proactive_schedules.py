@@ -56,9 +56,9 @@ def _make_defn(
     instruction: str = "Say good morning",
 ) -> ScheduleDefinition:
     return ScheduleDefinition(
-        id=id,
+        id=defn_id,
         enabled=enabled,
-        type=type,  # type: ignore[arg-type]
+        type=defn_type,  # type: ignore[arg-type]
         time=time,
         start=start,
         end=end,
@@ -76,7 +76,7 @@ class TestCalcNextRunAt:
         # 07:00 UTC Paris = 09:00 → schedule is at 10:00 local → should be today
         tz = "Europe/Paris"
         now = datetime(2026, 6, 10, 7, 0, tzinfo=UTC)  # 09:00 Paris (CEST=+2)
-        defn = _make_defn(type="daily_at", time="10:00")
+        defn = _make_defn(defn_type="daily_at", time="10:00")
         result = calc_next_run_at(defn, tz, utc_now=now)
         local = result.astimezone(ZoneInfo(tz))
         assert local.hour == 10
@@ -86,7 +86,7 @@ class TestCalcNextRunAt:
     def test_daily_at_past_today_goes_tomorrow(self) -> None:
         tz = "Europe/Paris"
         now = datetime(2026, 6, 10, 10, 30, tzinfo=UTC)  # 12:30 Paris
-        defn = _make_defn(type="daily_at", time="10:00")
+        defn = _make_defn(defn_type="daily_at", time="10:00")
         result = calc_next_run_at(defn, tz, utc_now=now)
         local = result.astimezone(ZoneInfo(tz))
         assert local.hour == 10
@@ -95,7 +95,7 @@ class TestCalcNextRunAt:
     def test_daily_at_utc(self) -> None:
         tz = "UTC"
         now = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
-        defn = _make_defn(type="daily_at", time="09:30")
+        defn = _make_defn(defn_type="daily_at", time="09:30")
         result = calc_next_run_at(defn, tz, utc_now=now)
         assert result.hour == 9
         assert result.minute == 30
@@ -131,7 +131,7 @@ class TestCalcNextRunAt:
         tz = "Europe/Paris"
         # Just before DST; 00:30 UTC = 01:30 Paris (CET +1)
         now = datetime(2026, 3, 29, 0, 30, tzinfo=UTC)
-        defn = _make_defn(type="daily_at", time="09:00")
+        defn = _make_defn(defn_type="daily_at", time="09:00")
         result = calc_next_run_at(defn, tz, utc_now=now)
         local = result.astimezone(ZoneInfo(tz))
         assert local.hour == 9
@@ -379,7 +379,7 @@ class TestScheduleInstanceService:
         assert all(r.id != inst.id for r in due)
 
     def test_timezone_change_recalculates_next_run(self, svc: ScheduleInstanceService) -> None:
-        defn = _make_defn(type="daily_at", time="09:00")
+        defn = _make_defn(defn_type="daily_at", time="09:00")
         inst, _ = svc.get_or_create(
             defn=defn, character_id="char1", conversation_id="conv1",
             channel="web", channel_instance_id="web", external_user_id="u1",
@@ -567,7 +567,7 @@ class TestProactiveScheduler:
         ])
         conv = self._make_conversation(data_dir, char.id)
         svc = ScheduleInstanceService(data_dir)
-        defn = _make_defn(id="m", enabled=False)
+        defn = _make_defn(defn_id="m", enabled=False)
         inst, _ = svc.get_or_create(
             defn=defn, character_id=char.id, conversation_id=conv.id,
             channel="web", channel_instance_id="web", external_user_id="u1",

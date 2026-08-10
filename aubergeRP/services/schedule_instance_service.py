@@ -18,6 +18,7 @@ import random
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
@@ -299,17 +300,28 @@ class ScheduleInstanceService:
             return self._to_public(row)
 
     def claim_for_generation(self, instance_id: str, utc_now: datetime | None = None) -> bool:
-        """Atomically set generation_started_at.  Returns True if the claim succeeded."""
+        """Set generation_started_at atomically via UPDATE … WHERE IS NULL.
+
+        Returns True if this call successfully acquired the claim (i.e. no
+        concurrent claimer beat us to it).  Safe within a single SQLite writer
+        because SQLite serialises writes; the affected-rows check additionally
+        guards against a race if multiple processes share the same DB.
+        """
+        from sqlalchemy import text
+        from sqlalchemy.engine import CursorResult
+
         now = (utc_now or datetime.now(UTC)).replace(tzinfo=None)
         with self._get_session() as session:
-            row = session.get(ScheduleInstanceRow, instance_id)
-            if row is None or row.generation_started_at is not None:
-                return False
-            row.generation_started_at = now
-            row.updated_at = now
-            session.add(row)
+            result: CursorResult[Any] = session.execute(  # type: ignore[assignment]
+                text(
+                    "UPDATE schedule_instances"
+                    " SET generation_started_at = :now, updated_at = :now"
+                    " WHERE id = :id AND generation_started_at IS NULL"
+                ),
+                {"now": now.isoformat(), "id": instance_id},
+            )
             session.commit()
-            return True
+            return result.rowcount == 1
 
     def complete_generation(
         self,

@@ -79,6 +79,12 @@ class ProactiveScheduler:
             self._task = None
 
     async def _run(self) -> None:
+        # Fire once immediately so overdue schedules are processed on startup
+        # without waiting for the first poll interval.
+        try:
+            await self._tick()
+        except Exception:
+            logger.exception("ProactiveScheduler: unhandled error during initial tick")
         while True:
             await asyncio.sleep(self._poll_interval)
             try:
