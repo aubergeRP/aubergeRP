@@ -4,6 +4,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 from sqlmodel import Session, func, select
 
@@ -240,3 +241,27 @@ class ConversationService:
             images=images or [],
             timestamp=now,
         )
+
+    def delete_message(self, conversation_id: str, message_id: str) -> None:
+        self._load(conversation_id)  # validates existence
+        with self._get_session() as session:
+            msg_row = session.get(MessageRow, message_id)
+            if msg_row is None or msg_row.conversation_id != conversation_id:
+                raise KeyError(f"Message '{message_id}' not found")
+
+            session.delete(msg_row)
+            session.flush()
+            conv_row = session.get(ConversationRow, conversation_id)
+            assert conv_row is not None
+
+            timestamp_expr = cast(Any, MessageRow.timestamp)
+            latest_row = session.exec(
+                select(MessageRow.timestamp)
+                .where(
+                    MessageRow.conversation_id == conversation_id,
+                )
+                .order_by(timestamp_expr.desc())
+            ).first()
+            conv_row.updated_at = latest_row or conv_row.created_at
+            session.add(conv_row)
+            session.commit()
