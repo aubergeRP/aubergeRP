@@ -32,6 +32,9 @@ The Docker setup ships with a bundled [LocalAI](https://localai.io/) instance �
 * **SillyTavern Compatible:** Seamlessly import and export your favorite `.png` or `.json` character cards.
 * **Smart Image Generation:** The AI triggers image generation automatically based on the story context (via ComfyUI or SD-WebUI).
 * **Lightweight Stack:** No complex build steps. Just Python (FastAPI) and Vanilla JS.
+* **Telegram Bots:** Turn any character into a Telegram bot (long-polling; webhook mode is in progress), with an optional **dialogue-only** style that drops narration for a natural instant-messaging feel.
+* **Proactive Characters:** Characters can message you first — on a schedule defined in the character card (daily, weekly, interval, one-shot) or when the Proactive Behavior Engine decides a message is natural.
+* **Timezone Aware:** Each user (web session or Telegram chat) has their own IANA timezone, so "good morning" arrives in the morning.
 * **Admin Dashboard:** Easily manage your connectors, characters, and check your usage stats.
 * **Operations Dashboard:** See at a glance whether bots, LLM calls, proactive schedules and summarization are healthy — plus an optional Prometheus `/metrics` endpoint.
 
@@ -89,6 +92,8 @@ The chat UI has **no user authentication**. Anyone who can reach the server port
 * 📖 [Installation Guide](docs/installation-guide.md) – Step-by-step setup (Docker, GPU, etc.).
 * 🧩 [Connector System](docs/06-connector-system.md) – How to add new AI backends.
 * ⚙️ [Configuration](docs/09-configuration-and-setup.md) – `config.yaml` reference.
+* 💬 [Chat & Conversations](docs/05-chat-and-conversations.md) – Prompt pipeline, transports, dialogue-only mode.
+* ⏰ [Character Schedules & Proactive Messages](docs/07-character-card-schedules.md) – Characters that write first.
 * 📊 [Observability & Operations](docs/08-observability.md) – Operations dashboard, diagnostics and Prometheus metrics.
 * 🏗 [Architecture](docs/00-architecture-overview.md) – High-level design for contributors.
 

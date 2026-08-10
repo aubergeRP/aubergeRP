@@ -9,16 +9,26 @@
 ## High-level diagram
 
 ```
-Browser (Chat UI + Admin UI)
-        │ REST + SSE
-        ▼
-aubergeRP API (FastAPI, Python 3.12)
-        │
-        ▼
-ConnectorManager
-   ├── TextConnector  → any OpenAI-compatible chat API (LocalAI, OpenRouter, …)
-   └── ImageConnector → any OpenAI-compatible image API, or ComfyUI
+Browser (Chat UI + Admin UI)        Telegram (polling or webhook)
+        │ REST + SSE                        │ aiogram
+        └──────────────┬────────────────────┘
+                       ▼
+        aubergeRP API (FastAPI, Python 3.12)
+                       │
+        ┌──────────────┼──────────────────────────┐
+        ▼              ▼                          ▼
+   ChatService   ProactiveScheduler        ConnectorManager
+  (RP pipeline)  (schedules + engine)   ├── TextConnector  → any OpenAI-compatible chat API
+                       │                └── ImageConnector → any OpenAI-compatible image API, or ComfyUI
+                       ▼
+                DeliveryService → web (SSE) / Telegram
 ```
+
+Both transports share the same generation engine: `ChatService.generate_reply()`
+is transport-agnostic, and `DeliveryService` routes an outgoing message to the
+channel the conversation belongs to (Telegram pushes it; the web transport has
+no server-initiated push, so the message is persisted and appears on the next
+refresh).
 
 ## Key decisions
 
@@ -43,6 +53,7 @@ ConnectorManager
 | What | Where |
 |---|---|
 | Characters, conversations, messages, LLM stats | `data/auberge.db` (SQLite) |
+| Telegram bots, channel sessions, user timezones, schedule instances | `data/auberge.db` (SQLite) |
 | Connector config | `data/connectors/{uuid}.json` |
 | Avatars | `data/avatars/{uuid}.png` |
 | Generated images | `data/images/{session-token}/{uuid}.png` |

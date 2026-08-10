@@ -12,6 +12,8 @@
 | Image metadata | Pillow |
 | Config | PyYAML |
 | ComfyUI integration | websockets |
+| Telegram bots | aiogram 3 |
+| Timezones | `zoneinfo` (stdlib) |
 | Error tracking | sentry-sdk (optional) |
 
 ## Frontend

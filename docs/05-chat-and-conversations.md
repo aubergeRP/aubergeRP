@@ -28,6 +28,55 @@ This path uses the same RP pipeline as Web/SSE (prompt construction, history,
 summarization, connector call, and persistence). The HTTP/SSE router remains a
 consumer of the same generation engine.
 
+## Transports
+
+| Transport | Inbound | Outbound | Server-initiated push |
+|---|---|---|---|
+| Web | `POST /api/chat/{id}/message` | SSE stream | No — proactive messages are persisted and shown on next refresh |
+| Telegram | aiogram (long-polling **or** webhook) | Bot API `sendMessage` | Yes |
+
+A Telegram user is mapped to an AubergeRP conversation by
+`ChannelSessionService`, keyed on `(channel, channel_instance_id, external_user_id)`
+— for Telegram, `channel_instance_id` is the bot id. Bots support the commands
+`/start`, `/reset`, `/status` and `/timezone`.
+
+Webhook mode is configured per bot (`update_mode`, `webhook_url`,
+`webhook_secret`); the runtime manager registers the webhook with Telegram on
+enable and deregisters it on disable. Telegram is told to POST updates to
+`{webhook_url}/api/telegram/webhook/{bot_id}`, which
+`TelegramRuntimeManager.dispatch_update()` feeds into the same handlers as
+polling mode.
+
+> ⚠️ The receiving HTTP route is **not implemented yet** — only the registration
+> side and the dispatch helper exist, so webhook bots currently receive nothing.
+> See [TODO.md](../TODO.md). Use polling mode in the meantime.
+
+See the Telegram section of [03-backend-api.md](03-backend-api.md) for bot CRUD.
+
+## Dialogue-only mode
+
+A Telegram bot can be flagged `dialogue_only`. The `dialogue_only_instruction`
+prompt is then appended to the system prompt, and the character replies with
+only what it would actually type in a messaging app — no narration, actions,
+scene descriptions or stage directions. Web conversations are unaffected.
+
+## Timezones
+
+Each user has an optional IANA timezone stored per
+`(channel, channel_instance_id, external_user_id)` — the browser reports it
+automatically for web sessions, and Telegram users set it with `/timezone
+Europe/Paris`. It is used to resolve character-card schedules and to fill
+`{{local_time}}` in proactive prompts.
+
+## Proactive messages
+
+Characters can initiate a conversation, either from a schedule declared in the
+character card or from the proactive behavior engine (which asks the LLM,
+via the `proactive_decision` prompt, whether contacting the user right now is
+natural, and lets it skip). Generation reuses `generate_reply()` with the
+`proactive_event` injection; `DeliveryService` handles the transport. Full
+details: [07-character-card-schedules.md](07-character-card-schedules.md).
+
 ## SSE events
 
 | Event | Data |

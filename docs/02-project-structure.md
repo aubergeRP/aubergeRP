@@ -17,8 +17,25 @@ aubergeRP/
 │   │   └── comfyui.py
 │   ├── migrations/          # Numbered SQLite migrations (auto-applied at startup)
 │   ├── models/              # Pydantic request/response models
+│   ├── prompts/             # Every LLM prompt, one .txt per key (source of truth)
 │   ├── routers/             # FastAPI route handlers (thin — delegate to services)
+│   │   ├── chat.py, characters.py, conversations.py, connectors.py, …
+│   │   ├── telegram.py      # Bot CRUD + webhook endpoint
+│   │   ├── timezone.py      # Per-session IANA timezone
+│   │   ├── schedules.py     # Runtime schedule instances
+│   │   ├── observability.py # Operations dashboard payloads
+│   │   └── metrics.py       # Optional Prometheus /metrics
 │   ├── services/            # Business logic
+│   │   ├── chat_service.py              # RP generation pipeline (transport-agnostic)
+│   │   ├── summarization_service.py     # History compression
+│   │   ├── telegram_bot_service.py      # Bot config CRUD
+│   │   ├── telegram_runtime_manager.py  # Runs bots (polling / webhook)
+│   │   ├── channel_session_service.py   # external user → conversation mapping
+│   │   ├── timezone_service.py          # Transport-neutral IANA timezones
+│   │   ├── schedule_instance_service.py # Card schedules → runtime instances
+│   │   ├── proactive_scheduler_service.py # Proactive behavior engine
+│   │   ├── delivery_service.py          # Transport-neutral message delivery
+│   │   └── observability_service.py     # Runtime registries + aggregation
 │   ├── plugins/             # Plugin system skeleton
 │   └── utils/               # Shared helpers
 ├── frontend/                # Static HTML/JS/CSS

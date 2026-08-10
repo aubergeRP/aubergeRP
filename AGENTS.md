@@ -7,6 +7,10 @@ aubergeRP is a **self-hostable roleplay engine** built with:
 - **Backend:** Python 3.12 + FastAPI + SQLModel (SQLite)
 - **Frontend:** Vanilla HTML/JS/CSS — no framework, no build step
 - **Connectors:** pluggable modules for text (LLM) and image generation
+- **Transports:** Web (REST + SSE) and Telegram bots — both consume the same
+  transport-agnostic `ChatService.generate_reply()` pipeline
+- **Proactive engine:** character-card schedules + an LLM decision step that can
+  make a character message the user first (`ProactiveScheduler`)
 
 Architecture docs are in `docs/`, read in numeric order. Spec files are ground truth for intended behaviour.
 

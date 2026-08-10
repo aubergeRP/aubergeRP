@@ -59,3 +59,15 @@ Macros are resolved at prompt-build time (in `chat_service.py`), not at storage 
 |---|---|
 | `image_prompt_prefix` | Prepended to every image generation prompt for this character |
 | `negative_prompt` | Default negative prompt for image generation |
+Proactive behaviour uses a **separate, lowercase** key,
+`data.extensions.aubergerp`:
+
+| Field | Description |
+|---|---|
+| `proactive` | Proactive-messaging defaults (`enabled`, `decision_mode`, cooldowns, limits) |
+| `schedules` | List of schedule definitions — when the character messages first |
+
+`proactive` and `schedules` are documented in full in
+[07-character-card-schedules.md](07-character-card-schedules.md). They survive
+import/export, so a card can ship its own behaviour; per-user runtime state is
+kept separately in the database and is never written back to the card.
