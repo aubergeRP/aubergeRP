@@ -1,3 +1,5 @@
-Summarize this conversation excerpt:
+Compress the following roleplay conversation excerpt into a structured continuity summary. Preserve relationship state, character facts, user facts, promises, key events, conflicts, preferences, ongoing topics, and unresolved threads. Be concise — this will replace the older messages in future context.
+
+Excerpt:
 
 {excerpt}
