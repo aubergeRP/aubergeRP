@@ -44,6 +44,14 @@ const api = {
   exportJson:       (id)        => `/api/characters/${id}/export/json`,
   exportPng:        (id)        => `/api/characters/${id}/export/png`,
   avatarUrl:        (id)        => `/api/characters/${id}/avatar`,
+  listScheduleInstancesByCharacter: (id) => apiFetch(`/api/schedules/instances/character/${id}`),
+  setScheduleInstanceEnabled: (id, enabled) =>
+    apiFetch(`/api/schedules/instances/${id}/enabled`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }),
+  deleteScheduleInstance: (id) => apiFetch(`/api/schedules/instances/${id}`, { method: 'DELETE' }),
 };
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
@@ -90,6 +98,7 @@ const fDescError    = document.getElementById('char-desc-error');
 // Schedules section
 const schedulesListEl   = document.getElementById('char-schedules-list');
 const scheduleAddBtn    = document.getElementById('char-schedule-add-btn');
+const runtimeSchedulesListEl = document.getElementById('char-runtime-schedules-list');
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -97,6 +106,11 @@ let editingId = null;  // null = new, string = existing id
 let pendingAvatarFile = null;
 /** @type {Array<object>} */
 let editingSchedules = [];  // mutable list of schedule definitions
+let editingProactive = {
+  enabled: true,
+  decision_mode: 'contextual',
+  minimum_cooldown_minutes: 180,
+};
 let showToastFn   = () => {};
 let showConfirmFn = () => Promise.resolve(false);
 
@@ -144,6 +158,11 @@ export function initCharacters({ showToast, showConfirm }) {
       time: '09:00',
       start: null,
       end: null,
+      delay_minutes: null,
+      inactivity_minutes: null,
+      not_before_time: null,
+      minimum_cooldown_minutes: null,
+      one_shot: false,
       instruction: '',
     });
     renderSchedules();
@@ -331,7 +350,9 @@ async function openEditDialog(id) {
       fCreator.value      = d.creator || '';
       fCreatorNotes.value = d.creator_notes || '';
       editingSchedules    = JSON.parse(JSON.stringify(d.extensions?.aubergerp?.schedules || []));
+      editingProactive    = JSON.parse(JSON.stringify(d.extensions?.aubergerp?.proactive || editingProactive));
       renderSchedules();
+      await renderRuntimeSchedules(id);
 
       if (char.has_avatar || char.avatar_url) {
         charAvatarImg.src = api.avatarUrl(id);
@@ -351,7 +372,13 @@ async function openEditDialog(id) {
     charAvatarImg.src = '';
     charAvatarImg.style.display = 'none';
     editingSchedules = [];
+    editingProactive = {
+      enabled: true,
+      decision_mode: 'contextual',
+      minimum_cooldown_minutes: 180,
+    };
     renderSchedules();
+    renderRuntimeSchedules(null);
   }
 
   charDialog.style.display = 'flex';
@@ -395,6 +422,7 @@ async function handleSave() {
       },
       aubergerp: {
         schedules: collectSchedules(),
+        proactive: editingProactive,
       },
     }
   };
@@ -454,12 +482,16 @@ function renderSchedules() {
     row.style.cssText = 'border:1px solid var(--color-border,#444);border-radius:6px;padding:0.75rem;margin-bottom:0.5rem;';
 
     const isWindow = sched.type === 'daily_window';
+    const isAfterDelay = sched.type === 'after_delay';
+    const isAfterInactivity = sched.type === 'after_inactivity';
     row.innerHTML = `
       <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.5rem">
         <input type="text" data-field="id" value="${escHtml(sched.id || '')}" placeholder="Schedule ID" style="flex:1;min-width:8rem" title="Unique schedule ID">
         <select data-field="type" style="flex:0 0 auto">
           <option value="daily_at"${sched.type === 'daily_at' ? ' selected' : ''}>daily_at</option>
           <option value="daily_window"${isWindow ? ' selected' : ''}>daily_window</option>
+          <option value="after_delay"${isAfterDelay ? ' selected' : ''}>after_delay</option>
+          <option value="after_inactivity"${isAfterInactivity ? ' selected' : ''}>after_inactivity</option>
         </select>
         <label style="display:flex;align-items:center;gap:0.25rem;cursor:pointer">
           <input type="checkbox" data-field="enabled"${sched.enabled ? ' checked' : ''}> Enabled
@@ -477,6 +509,23 @@ function renderSchedules() {
           <label>end</label>
           <input type="text" data-field="end" value="${escHtml(sched.end || '11:00')}" placeholder="11:00" style="width:6rem">
         </div>
+        <div class="sched-after-delay" style="display:${isAfterDelay ? 'flex' : 'none'};gap:0.5rem;align-items:center">
+          <label>Delay (min)</label>
+          <input type="number" data-field="delay_minutes" value="${escHtml(String(sched.delay_minutes ?? 180))}" style="width:6rem">
+        </div>
+        <div class="sched-after-inactivity" style="display:${isAfterInactivity ? 'flex' : 'none'};gap:0.5rem;align-items:center">
+          <label>Inactivity (min)</label>
+          <input type="number" data-field="inactivity_minutes" value="${escHtml(String(sched.inactivity_minutes ?? 1440))}" style="width:7rem">
+        </div>
+      </div>
+      <div class="sched-time-fields" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem">
+        <label>Not before</label>
+        <input type="text" data-field="not_before_time" value="${escHtml(sched.not_before_time || '')}" placeholder="09:00" style="width:6rem">
+        <label>Cooldown (min)</label>
+        <input type="number" data-field="minimum_cooldown_minutes" value="${escHtml(String(sched.minimum_cooldown_minutes ?? ''))}" style="width:7rem">
+        <label style="display:flex;align-items:center;gap:0.25rem;">
+          <input type="checkbox" data-field="one_shot"${sched.one_shot ? ' checked' : ''}> One-shot
+        </label>
       </div>
       <div>
         <label style="display:block;font-size:0.82rem;margin-bottom:0.25rem">Instruction</label>
@@ -490,6 +539,8 @@ function renderSchedules() {
       editingSchedules[idx].type = val;
       row.querySelector('.sched-daily-at').style.display = val === 'daily_at' ? 'flex' : 'none';
       row.querySelector('.sched-daily-window').style.display = val === 'daily_window' ? 'flex' : 'none';
+      row.querySelector('.sched-after-delay').style.display = val === 'after_delay' ? 'flex' : 'none';
+      row.querySelector('.sched-after-inactivity').style.display = val === 'after_inactivity' ? 'flex' : 'none';
     });
 
     // Live sync for text/checkbox fields
@@ -524,10 +575,61 @@ function collectSchedules() {
     };
     if (out.type === 'daily_at') {
       out.time = s.time || '09:00';
-    } else {
+    } else if (out.type === 'daily_window') {
       out.start = s.start || '09:00';
       out.end   = s.end   || '11:00';
+    } else if (out.type === 'after_delay') {
+      out.delay_minutes = Number(s.delay_minutes || 180);
+    } else if (out.type === 'after_inactivity') {
+      out.inactivity_minutes = Number(s.inactivity_minutes || 1440);
     }
+    if (s.not_before_time) out.not_before_time = s.not_before_time;
+    if (s.minimum_cooldown_minutes !== null && s.minimum_cooldown_minutes !== undefined && s.minimum_cooldown_minutes !== '') {
+      out.minimum_cooldown_minutes = Number(s.minimum_cooldown_minutes);
+    }
+    if (s.one_shot) out.one_shot = true;
     return out;
   }).filter(s => s.id && s.instruction);
+}
+
+async function renderRuntimeSchedules(characterId) {
+  if (!runtimeSchedulesListEl) return;
+  if (!characterId) {
+    runtimeSchedulesListEl.innerHTML = '<div class="loading-row">No runtime schedule instances yet.</div>';
+    return;
+  }
+  try {
+    const rows = await api.listScheduleInstancesByCharacter(characterId);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      runtimeSchedulesListEl.innerHTML = '<div class="loading-row">No runtime schedule instances yet.</div>';
+      return;
+    }
+    runtimeSchedulesListEl.innerHTML = rows.map(r => `
+      <div class="schedule-row" style="border:1px solid var(--color-border,#444);border-radius:6px;padding:0.5rem;margin-bottom:0.5rem;">
+        <div><strong>${escHtml(r.schedule_def_id)}</strong> <code>${escHtml(r.trigger_type || '')}</code></div>
+        <div style="font-size:0.85rem;opacity:0.85;">origin: ${escHtml(r.origin || '')} · next: ${escHtml(String(r.next_run_at || '—'))}</div>
+        <div style="font-size:0.85rem;opacity:0.85;">last: ${escHtml(String(r.last_execution_at || '—'))} · status: ${escHtml(r.last_execution_status || '—')}</div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.35rem;">
+          <button class="btn btn-secondary btn-sm" data-action="toggle-runtime" data-id="${escHtml(r.id)}" data-enabled="${r.enabled ? '1' : '0'}">${r.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="btn btn-secondary btn-sm" data-action="delete-runtime" data-id="${escHtml(r.id)}">Cancel</button>
+        </div>
+      </div>
+    `).join('');
+    runtimeSchedulesListEl.querySelectorAll('[data-action="toggle-runtime"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const enabled = btn.dataset.enabled === '1';
+        await api.setScheduleInstanceEnabled(id, !enabled);
+        await renderRuntimeSchedules(characterId);
+      });
+    });
+    runtimeSchedulesListEl.querySelectorAll('[data-action="delete-runtime"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await api.deleteScheduleInstance(btn.dataset.id);
+        await renderRuntimeSchedules(characterId);
+      });
+    });
+  } catch (err) {
+    runtimeSchedulesListEl.innerHTML = `<div class="error-banner">${escHtml(err.message)}</div>`;
+  }
 }

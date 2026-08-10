@@ -44,6 +44,8 @@ class ScheduleInstanceCreate(BaseModel):
     external_user_id: str
     external_chat_id: str = ""
     timezone: str = "UTC"
+    origin: str = "admin"
+    decision_mode: str = "contextual"
 
 
 class EnabledUpdate(BaseModel):
@@ -93,6 +95,8 @@ def create_instance(
             external_user_id=body.external_user_id,
             external_chat_id=body.external_chat_id,
             timezone=body.timezone,
+            origin=body.origin,
+            decision_mode=body.decision_mode,
         )
         return instance
     except ValueError as exc:

@@ -1,0 +1,9 @@
+Decide whether contacting the user now is natural.
+
+Use the relationship, recent conversation, and memory.
+Do not send a message merely because the trigger fired.
+
+Return ONLY valid JSON:
+{"action":"send","message":"...","reason":"..."}
+or
+{"action":"skip","reason":"..."}

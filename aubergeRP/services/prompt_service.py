@@ -114,6 +114,13 @@ PROMPT_META: dict[str, dict[str, str]] = {
             "Supports {{local_time}} and {{instruction}} placeholders."
         ),
     },
+    "proactive_decision": {
+        "label": "Proactive Send/Skip Decision",
+        "description": (
+            "Instruction used by the proactive engine to decide whether to SEND or SKIP. "
+            "Must return strict JSON with action/message/reason fields."
+        ),
+    },
 }
 
 

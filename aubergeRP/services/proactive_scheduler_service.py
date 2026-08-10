@@ -1,36 +1,13 @@
-"""ProactiveScheduler — transport-neutral scheduled message trigger service.
-
-Architecture
-------------
-The scheduler polls the ``schedule_instances`` table once per minute.
-For each row whose ``next_run_at`` is in the past and whose
-``generation_started_at`` is NULL (no concurrent generation in progress):
-
-1. **Claim**: set ``generation_started_at = now`` (idempotency lock).
-2. **Resolve**: load the character card, find the matching ScheduleDefinition.
-3. **Inject**: build a proactive-event system message from the prompt template
-   and inject it as the last system message to the chat engine.
-4. **Generate**: call the normal AubergeRP chat engine with an empty user turn.
-5. **Deliver**: send the generated text to the transport adapter.
-6. **Advance**: record ``last_run_at``, recalculate ``next_run_at``, clear lock.
-
-On failure the lock is released so the next tick can retry.
-
-On server startup the scheduler explicitly clears any leftover
-``generation_started_at`` locks before the first tick. This allows an
-interrupted generation to be retried after a crash/restart instead of staying
-stuck forever.
-
-Telegram and Web share the same scheduler; delivery is handled by the
-:mod:`delivery_service` transport adapters.
-"""
+"""ProactiveScheduler — transport-neutral proactive behavior engine."""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from ..db_models import ScheduleInstanceRow
@@ -42,27 +19,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_PROACTIVE_SYSTEM_PLACEHOLDER = "__PROACTIVE_EVENT__"
 
-
-def _build_proactive_injection(
-    local_time_str: str,
-    instruction: str,
-) -> str:
-    """Render the proactive-event prompt template."""
+def _build_proactive_injection(local_time_str: str, instruction: str) -> str:
     from .prompt_service import get_prompt
 
     template = get_prompt("proactive_event")
-    return (
-        template
-        .replace("{{local_time}}", local_time_str)
-        .replace("{{instruction}}", instruction)
-    )
+    return template.replace("{{local_time}}", local_time_str).replace("{{instruction}}", instruction)
+
+
+@dataclass(slots=True)
+class ProactiveDecision:
+    action: str
+    message: str = ""
+    reason: str = ""
 
 
 class ProactiveScheduler:
-    """Background asyncio task that fires scheduled proactive messages."""
-
     def __init__(self, data_dir: Path | str, poll_interval: int = 60) -> None:
         self._data_dir = Path(data_dir)
         self._poll_interval = poll_interval
@@ -79,8 +51,6 @@ class ProactiveScheduler:
             self._task = None
 
     async def _run(self) -> None:
-        # Fire once immediately so overdue schedules are processed on startup
-        # without waiting for the first poll interval.
         try:
             self._recover_startup_locks()
             await self._tick()
@@ -94,30 +64,20 @@ class ProactiveScheduler:
                 logger.exception("ProactiveScheduler: unhandled error during tick")
 
     async def _tick(self, utc_now: datetime | None = None) -> None:
-        """Process all due schedule instances."""
         from ..services.schedule_instance_service import ScheduleInstanceService
 
         now = utc_now or datetime.now(UTC)
         svc = ScheduleInstanceService(self._data_dir)
-        due_rows = svc.find_due(utc_now=now)
-
-        if due_rows:
-            logger.debug("ProactiveScheduler: %d instance(s) due", len(due_rows))
-
-        for row in due_rows:
+        for row in svc.list_due(now):
             await self._process_instance(row, svc, now)
 
     def _recover_startup_locks(self, utc_now: datetime | None = None) -> None:
-        """Release abandoned generation locks from a previous server process."""
         from ..services.schedule_instance_service import ScheduleInstanceService
 
         svc = ScheduleInstanceService(self._data_dir)
         released = svc.release_startup_generation_locks(utc_now=utc_now)
         if released:
-            logger.warning(
-                "ProactiveScheduler: released %d abandoned generation lock(s) on startup",
-                released,
-            )
+            logger.warning("ProactiveScheduler: released %d abandoned generation lock(s)", released)
 
     async def _process_instance(
         self,
@@ -127,155 +87,213 @@ class ProactiveScheduler:
     ) -> None:
         from ..services.character_service import CharacterNotFoundError, CharacterService
 
-        instance_id = row.id
-
-        # ── 1. Claim ──────────────────────────────────────────────────────────
-        if not svc.claim_for_generation(instance_id, utc_now=utc_now):
-            # Another process/coroutine already claimed it
+        if not svc.claim_for_generation(row.id, utc_now=utc_now):
             return
-
+        now = utc_now or datetime.now(UTC)
         try:
-            # ── 2. Resolve character + schedule definition ─────────────────────
             char_svc = CharacterService(data_dir=self._data_dir)
             try:
                 char = char_svc.get_character(row.character_id)
             except (CharacterNotFoundError, KeyError):
-                logger.warning(
-                    "ProactiveScheduler: character %s not found for instance %s; skipping",
-                    row.character_id,
-                    instance_id,
-                )
-                svc.release_generation_lock(instance_id)
+                svc.mark_failed(row.id, "character not found", utc_now=utc_now)
                 return
 
-            defn = _get_schedule_definition(char, row.schedule_def_id)
+            defn = svc.get_definition_for_row(row) or _get_schedule_definition(char, row.schedule_def_id)
             if defn is None:
-                logger.warning(
-                    "ProactiveScheduler: schedule_def '%s' not found in character %s; releasing",
-                    row.schedule_def_id,
-                    row.character_id,
-                )
-                svc.release_generation_lock(instance_id)
+                svc.mark_failed(row.id, "schedule definition not found", utc_now=utc_now)
                 return
-
             if not defn.enabled:
-                logger.debug(
-                    "ProactiveScheduler: schedule_def '%s' is disabled; skipping",
-                    row.schedule_def_id,
-                )
-                svc.release_generation_lock(instance_id)
+                svc.complete_execution(row.id, defn, status="skipped", reason="disabled", utc_now=utc_now)
                 return
 
-            # ── 3. Build proactive injection ───────────────────────────────────
+            if row.last_sent_at is not None and row.minimum_cooldown_minutes > 0:
+                last_sent = row.last_sent_at.replace(tzinfo=UTC)
+                if now < last_sent + timedelta(minutes=row.minimum_cooldown_minutes):
+                    svc.complete_execution(
+                        row.id,
+                        defn,
+                        status="skipped",
+                        reason="cooldown",
+                        utc_now=now,
+                    )
+                    return
+
             zi = ZoneInfo(row.timezone)
-            local_time_str = utc_now.astimezone(zi).strftime("%Y-%m-%d %H:%M ") + row.timezone
+            local_time_str = now.astimezone(zi).strftime("%Y-%m-%d %H:%M ") + row.timezone
             injection = _build_proactive_injection(local_time_str, defn.instruction)
 
-            # ── 4. Generate via the normal chat engine ─────────────────────────
-            result_text = await self._generate(
-                conversation_id=row.conversation_id,
-                proactive_injection=injection,
-            )
-            if result_text is None:
-                svc.release_generation_lock(instance_id)
+            message: str | None = None
+            if row.decision_mode == "contextual":
+                decision = await self._decide_send_or_skip(conversation_id=row.conversation_id, injection=injection)
+                if decision.action == "skip":
+                    svc.complete_execution(
+                        row.id,
+                        defn,
+                        status="skipped",
+                        reason=decision.reason or "contextual_skip",
+                        utc_now=now,
+                    )
+                    return
+                message = decision.message.strip() or None
+
+            if message is None:
+                message = await self._generate(conversation_id=row.conversation_id, proactive_injection=injection)
+            if message is None:
+                svc.mark_failed(row.id, "generation_failed", utc_now=utc_now)
                 return
 
-            # ── 5. Deliver via transport adapter ──────────────────────────────
+            self._persist_assistant_message(row.conversation_id, message)
             adapter = make_delivery_adapter(row.channel, self._data_dir)
             try:
                 await adapter.deliver(
                     channel_instance_id=row.channel_instance_id,
                     external_chat_id=row.external_chat_id,
-                    message_text=result_text,
+                    message_text=message,
                 )
             except Exception:
                 logger.exception(
-                    "ProactiveScheduler: delivery failed for instance %s (message already persisted)",
-                    instance_id,
+                    "ProactiveScheduler: delivery failed for instance %s (message persisted)",
+                    row.id,
                 )
-                # Do not retry generation — message is already in conversation history.
+                svc.complete_execution(
+                    row.id,
+                    defn,
+                    status="failed",
+                    reason="delivery_failed",
+                    utc_now=now,
+                )
+                return
 
-            # ── 6. Advance schedule ────────────────────────────────────────────
-            svc.complete_generation(instance_id, defn, utc_now=utc_now)
-            logger.info(
-                "ProactiveScheduler: fired schedule '%s' for conversation %s (channel=%s)",
-                row.schedule_def_id,
-                row.conversation_id,
-                row.channel,
-            )
-
+            svc.complete_execution(row.id, defn, status="sent", utc_now=now, mark_sent=True)
         except Exception:
-            logger.exception(
-                "ProactiveScheduler: unexpected error for instance %s; releasing lock",
-                instance_id,
-            )
-            svc.release_generation_lock(instance_id)
+            logger.exception("ProactiveScheduler: unexpected error for instance %s", row.id)
+            svc.mark_failed(row.id, "unexpected_error", utc_now=now)
 
-    async def _generate(
-        self,
-        *,
-        conversation_id: str,
-        proactive_injection: str,
-    ) -> str | None:
-        """Call the chat engine with a proactive injection system message.
+    def _persist_assistant_message(self, conversation_id: str, message: str) -> None:
+        from ..services.character_service import CharacterService
+        from ..services.conversation_service import ConversationService
 
-        Returns the generated text, or None on failure.
-        The generated assistant message is persisted normally by the engine.
-        """
+        char_svc = CharacterService(data_dir=self._data_dir)
+        conv_svc = ConversationService(data_dir=self._data_dir, character_service=char_svc)
+        conv_svc.append_message(conversation_id, "assistant", message, images=[])
+
+    async def _decide_send_or_skip(self, *, conversation_id: str, injection: str) -> ProactiveDecision:
         from ..config import get_config
         from ..connectors.manager import ConnectorManager
         from ..services.character_service import CharacterService
-        from ..services.chat_service import ChatService, GenerationOptions
+        from ..services.chat_service import build_prompt
         from ..services.conversation_service import ConversationService
-        from ..services.media_service import MediaService
-        from ..services.statistics_service import StatisticsService
+        from ..services.prompt_service import get_prompt
+        from ..services.summarization_service import maybe_summarize
+
+        config = get_config()
+        char_svc = CharacterService(data_dir=self._data_dir)
+        conv_svc = ConversationService(data_dir=self._data_dir, character_service=char_svc)
+        conv = conv_svc.get_conversation(conversation_id)
+        char = char_svc.get_character(conv.character_id)
+        manager = ConnectorManager(data_dir=self._data_dir, config=config)
+        text_connector = manager.get_active_text_connector()
+        if text_connector is None:
+            return ProactiveDecision(action="skip", reason="no_active_text_connector")
+
+        decision_instruction = get_prompt("proactive_decision")
+        payload_prompt = f"{injection}\n\n{decision_instruction}"
+        messages = build_prompt(
+            conv,
+            char,
+            user_name=config.user.name,
+            use_tool_calling=False,
+            ooc_guardrail=False,
+            proactive_injection=payload_prompt,
+        )
+        messages = await maybe_summarize(
+            messages,
+            text_connector,
+            config.chat.context_window,
+            config.chat.summarization_threshold,
+        )
+        chunks: list[str] = []
+        async for token in text_connector.stream_chat_completion(messages):
+            chunks.append(token)
+        raw = "".join(chunks).strip()
+        if not raw:
+            return ProactiveDecision(action="skip", reason="empty_decision")
+
+        obj = _extract_json_object(raw)
+        if obj is None:
+            return ProactiveDecision(action="send", message=raw)
+        action = str(obj.get("action", "")).strip().lower()
+        if action == "skip":
+            return ProactiveDecision(action="skip", reason=str(obj.get("reason", "")).strip())
+        if action == "send":
+            return ProactiveDecision(
+                action="send",
+                message=str(obj.get("message", "")).strip(),
+                reason=str(obj.get("reason", "")).strip(),
+            )
+        return ProactiveDecision(action="send", message=raw)
+
+    async def _generate(self, *, conversation_id: str, proactive_injection: str) -> str | None:
+        from ..config import get_config
+        from ..connectors.manager import ConnectorManager
+        from ..services.character_service import CharacterService
+        from ..services.chat_service import build_prompt
+        from ..services.conversation_service import ConversationService
+        from ..services.summarization_service import maybe_summarize
 
         config = get_config()
         data_dir = self._data_dir
         char_svc = CharacterService(data_dir=data_dir)
         conv_svc = ConversationService(data_dir=data_dir, character_service=char_svc)
-        stats_svc = StatisticsService(data_dir=data_dir)
-        media_svc = MediaService(data_dir=data_dir)
+        conv = conv_svc.get_conversation(conversation_id)
+        char = char_svc.get_character(conv.character_id)
         connector_manager = ConnectorManager(data_dir=data_dir, config=config)
-        images_dir = Path(data_dir) / "images" / "proactive"
-
-        svc = ChatService(
-            conversation_service=conv_svc,
-            character_service=char_svc,
-            connector_manager=connector_manager,
-            images_dir=images_dir,
-            session_token="proactive",
-            context_window=config.chat.context_window,
-            summarization_threshold=config.chat.summarization_threshold,
-            ooc_protection=False,   # proactive events are generated internally
-            statistics_service=stats_svc,
-            media_service=media_svc,
+        text_connector = connector_manager.get_active_text_connector()
+        if text_connector is None:
+            return None
+        messages = build_prompt(
+            conv,
+            char,
+            user_name=config.user.name,
+            use_tool_calling=False,
+            ooc_guardrail=False,
             proactive_injection=proactive_injection,
         )
-
         try:
-            result = await svc.generate_reply(
-                conversation_id=conversation_id,
-                content="",   # No user message — proactive initiation
-                options=GenerationOptions(
-                    user_name="User",
-                    is_proactive=True,
-                ),
+            messages = await maybe_summarize(
+                messages,
+                text_connector,
+                config.chat.context_window,
+                config.chat.summarization_threshold,
             )
-            return result.text
+            chunks: list[str] = []
+            async for token in text_connector.stream_chat_completion(messages):
+                chunks.append(token)
+            text = "".join(chunks).strip()
+            return text or None
         except Exception:
-            logger.exception(
-                "ProactiveScheduler: generation failed for conversation %s",
-                conversation_id,
-            )
+            logger.exception("ProactiveScheduler: generation failed for conversation %s", conversation_id)
             return None
 
 
-def _get_schedule_definition(
-    char: CharacterCard,
-    schedule_def_id: str,
-) -> ScheduleDefinition | None:
-    """Extract a ScheduleDefinition from a CharacterCard by id."""
+def _extract_json_object(raw: str) -> dict[str, Any] | None:
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        pass
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(raw[start : end + 1])
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _get_schedule_definition(char: CharacterCard, schedule_def_id: str) -> ScheduleDefinition | None:
     from ..models.character import ScheduleDefinition
 
     ext = char.data.extensions.get("aubergerp", {})

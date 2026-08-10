@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ..models.conversation import Conversation, ConversationCreate, ConversationSummary
 from ..services.character_service import CharacterNotFoundError, CharacterService
 from ..services.conversation_service import ConversationNotFoundError, ConversationService
+from ..services.schedule_instance_service import ScheduleInstanceService
+from ..services.timezone_service import TimezoneService
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+logger = logging.getLogger(__name__)
 
 
 def get_conversation_service() -> ConversationService:
@@ -40,7 +45,51 @@ def create_conversation(
     session_token: str = Depends(get_session_token),
 ) -> Conversation:
     try:
-        return service.create_conversation(body.character_id, owner=session_token)
+        conv = service.create_conversation(body.character_id, owner=session_token)
+        from ..config import get_config
+        from ..models.character import ProactiveConfig, ScheduleDefinition
+
+        cfg = get_config()
+        char = CharacterService(data_dir=cfg.app.data_dir).get_character(body.character_id)
+        ext = char.data.extensions.get("aubergerp", {})
+        schedules_raw = ext.get("schedules", []) if isinstance(ext, dict) else []
+        proactive = ProactiveConfig(**(ext.get("proactive", {}) if isinstance(ext, dict) else {}))
+        tz = TimezoneService(cfg.app.data_dir).get_timezone_name("web", "web", session_token) or "UTC"
+        sched_svc = ScheduleInstanceService(cfg.app.data_dir)
+        for raw in schedules_raw:
+            if not isinstance(raw, dict):
+                continue
+            try:
+                defn = ScheduleDefinition(**raw)
+            except Exception:
+                logger.warning(
+                    "Invalid proactive schedule definition in character card '%s'",
+                    body.character_id,
+                    exc_info=True,
+                )
+                continue
+            try:
+                sched_svc.get_or_create(
+                    defn=defn,
+                    character_id=body.character_id,
+                    conversation_id=conv.id,
+                    channel="web",
+                    channel_instance_id="web",
+                    external_user_id=session_token or "web-user",
+                    external_chat_id=session_token or "",
+                    timezone=tz,
+                    origin="character-card",
+                    decision_mode=proactive.decision_mode,
+                    proactive=proactive,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to create proactive schedule instance for conversation '%s'",
+                    conv.id,
+                    exc_info=True,
+                )
+                continue
+        return conv
     except CharacterNotFoundError:
         raise HTTPException(status_code=404, detail=f"Character '{body.character_id}' not found")
 

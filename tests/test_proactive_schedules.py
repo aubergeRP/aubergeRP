@@ -153,6 +153,24 @@ class TestCalcNextRunAt:
         with pytest.raises(ValueError, match="'end' must be after 'start'"):
             calc_next_run_at(defn, "UTC")
 
+    def test_after_delay_uses_last_user_message(self) -> None:
+        now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+        last_user = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
+        defn = _make_defn(defn_type="after_delay", time=None)
+        defn = defn.model_copy(update={"delay_minutes": 180})
+        result = calc_next_run_at(defn, "UTC", utc_now=now, last_user_message_at=last_user)
+        assert result == datetime(2026, 1, 1, 13, 0, tzinfo=UTC)
+
+    def test_after_inactivity_respects_not_before(self) -> None:
+        now = datetime(2026, 1, 1, 5, 0, tzinfo=UTC)
+        last_user = datetime(2026, 1, 1, 4, 0, tzinfo=UTC)
+        defn = _make_defn(defn_type="after_inactivity", time=None)
+        defn = defn.model_copy(
+            update={"inactivity_minutes": 60, "not_before_time": "09:00"}
+        )
+        result = calc_next_run_at(defn, "UTC", utc_now=now, last_user_message_at=last_user)
+        assert result == datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+
 
 # ---------------------------------------------------------------------------
 # Character card schedule import / export
@@ -279,6 +297,23 @@ class TestScheduleInstanceService:
             external_chat_id="", timezone="UTC",
         )
         assert created is False
+
+    def test_get_or_create_dedupes_identical_schedule_with_different_id(self, svc: ScheduleInstanceService) -> None:
+        defn_a = _make_defn(defn_id="followup-a", instruction="Check in naturally.")
+        defn_b = _make_defn(defn_id="followup-b", instruction="  check in naturally.  ")
+        inst_a, created_a = svc.get_or_create(
+            defn=defn_a, character_id="char1", conversation_id="conv1",
+            channel="web", channel_instance_id="web", external_user_id="u1",
+            external_chat_id="", timezone="UTC",
+        )
+        inst_b, created_b = svc.get_or_create(
+            defn=defn_b, character_id="char1", conversation_id="conv1",
+            channel="web", channel_instance_id="web", external_user_id="u1",
+            external_chat_id="", timezone="UTC",
+        )
+        assert created_a is True
+        assert created_b is False
+        assert inst_b.id == inst_a.id
 
     def test_independent_instances_per_conversation(self, svc: ScheduleInstanceService) -> None:
         """Same character+schedule, different conversations → independent instances."""
@@ -510,6 +545,9 @@ class TestProactiveScheduler:
         # Schedule should still advance (delivery failure does not prevent next trigger)
         refreshed = svc.get_instance(inst.id)
         assert refreshed.last_run_at is not None
+        assert refreshed.last_execution_status == "failed"
+        assert refreshed.last_execution_reason == "delivery_failed"
+        assert refreshed.last_sent_at is None
 
     @pytest.mark.asyncio
     async def test_restart_recovers_stale_lock(self, data_dir: Path) -> None:
@@ -692,6 +730,48 @@ class TestProactiveScheduler:
             row = s.get(ScheduleInstanceRow, inst.id)
             assert row is not None
             assert row.generation_started_at is None
+
+    @pytest.mark.asyncio
+    async def test_contextual_skip_persists_status_without_message(self, data_dir: Path) -> None:
+        from aubergeRP.services.character_service import CharacterService
+        from aubergeRP.services.conversation_service import ConversationService
+        from aubergeRP.services.proactive_scheduler_service import ProactiveDecision, ProactiveScheduler
+
+        char = self._make_char(data_dir, [
+            {"id": "m", "enabled": True, "type": "daily_at", "time": "09:00", "instruction": "Hi"}
+        ])
+        conv = self._make_conversation(data_dir, char.id)
+        svc = ScheduleInstanceService(data_dir)
+        inst, _ = svc.get_or_create(
+            defn=_make_defn(defn_id="m"),
+            character_id=char.id,
+            conversation_id=conv.id,
+            channel="web",
+            channel_instance_id="web",
+            external_user_id="u1",
+            external_chat_id="",
+            timezone="UTC",
+            decision_mode="contextual",
+        )
+        _force_next_run_past(svc, inst.id)
+
+        scheduler = ProactiveScheduler(data_dir)
+        with patch.object(
+            scheduler,
+            "_decide_send_or_skip",
+            new_callable=AsyncMock,
+            return_value=ProactiveDecision(action="skip", reason="not natural"),
+        ):
+            await scheduler._tick()
+
+        refreshed = svc.get_instance(inst.id)
+        assert refreshed.last_execution_status == "skipped"
+        assert refreshed.last_execution_reason == "not natural"
+
+        conv_svc = ConversationService(data_dir=data_dir, character_service=CharacterService(data_dir=data_dir))
+        reloaded = conv_svc.get_conversation(conv.id)
+        # first_mes may exist for some characters; no newly added assistant message from skip
+        assert all("not natural" not in m.content for m in reloaded.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -885,4 +965,3 @@ class TestSchedulesRouter:
                                       json={"enabled": False})
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
-

@@ -120,6 +120,57 @@ _IMAGE_TOOL: dict[str, Any] = {
     },
 }
 
+_SCHEDULE_PROACTIVE_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "schedule_proactive_message",
+        "description": "Create a future proactive trigger for this conversation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "type": {
+                    "type": "string",
+                    "enum": ["after_delay", "after_inactivity", "daily_at", "daily_window"],
+                },
+                "instruction": {"type": "string"},
+                "delay_minutes": {"type": "integer"},
+                "inactivity_minutes": {"type": "integer"},
+                "time": {"type": "string"},
+                "start": {"type": "string"},
+                "end": {"type": "string"},
+                "not_before_time": {"type": "string"},
+                "minimum_cooldown_minutes": {"type": "integer"},
+                "one_shot": {"type": "boolean"},
+                "enabled": {"type": "boolean"},
+            },
+            "required": ["type", "instruction"],
+        },
+    },
+}
+
+_CANCEL_SCHEDULE_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "cancel_scheduled_message",
+        "description": "Cancel a scheduled proactive trigger by schedule id.",
+        "parameters": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
+    },
+}
+
+_LIST_SCHEDULES_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "list_scheduled_messages",
+        "description": "List active proactive schedules in this conversation.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
 # ---------------------------------------------------------------------------
 # [IMG:…] marker parser (fallback for connectors without tool-calling)
 # ---------------------------------------------------------------------------
@@ -345,6 +396,10 @@ class ChatService:
         statistics_service: StatisticsService | None = None,
         media_service: MediaService | None = None,
         proactive_injection: str | None = None,
+        channel: str = "web",
+        channel_instance_id: str = "web",
+        external_user_id: str = "",
+        external_chat_id: str = "",
     ) -> None:
         self._conversation_service = conversation_service
         self._character_service = character_service
@@ -357,6 +412,10 @@ class ChatService:
         self._statistics_service = statistics_service
         self._media_service = media_service
         self._proactive_injection = proactive_injection
+        self._channel = channel
+        self._channel_instance_id = channel_instance_id
+        self._external_user_id = external_user_id
+        self._external_chat_id = external_chat_id
 
     def _resolve_text_connector_metadata(self, text_connector: Any) -> tuple[str, str, str]:
         connector_id = ""
@@ -483,8 +542,9 @@ class ChatService:
         try:
             conv = self._conversation_service.get_conversation(conversation_id)
             char = self._character_service.get_character(conv.character_id)
-        except Exception as exc:
-            yield {"type": "error", "detail": str(exc)}
+        except Exception:
+            logger.warning("ChatService failed to load conversation context", exc_info=True)
+            yield {"type": "error", "detail": "Unable to load conversation context."}
             return
 
         # Frontend retries should not duplicate the user turn.
@@ -499,15 +559,24 @@ class ChatService:
                     conversation_id, "user", content
                 )
                 appended_user_message_id = user_message.id
-            except Exception as exc:
-                yield {"type": "error", "detail": str(exc)}
+            except Exception:
+                logger.warning("ChatService failed to append user message", exc_info=True)
+                yield {"type": "error", "detail": "Unable to persist user message."}
                 return
             # Reload conversation to include the newly appended user message.
             try:
                 conv = self._conversation_service.get_conversation(conversation_id)
-            except Exception as exc:
-                yield {"type": "error", "detail": str(exc)}
+            except Exception:
+                logger.warning("ChatService failed to reload conversation", exc_info=True)
+                yield {"type": "error", "detail": "Unable to reload conversation."}
                 return
+            with suppress(Exception):
+                from ..services.schedule_instance_service import ScheduleInstanceService
+
+                ScheduleInstanceService(self._conversation_service.data_dir).rebase_event_triggers_on_user_message(
+                    conversation_id,
+                    user_message_at=user_message.timestamp,
+                )
 
         text_connector = self._connector_manager.get_active_text_connector()
         if text_connector is None:
@@ -563,7 +632,7 @@ class ChatService:
         try:
             if use_tools:
                 async for event in self._stream_with_tools(
-                    text_connector, messages, char
+                    text_connector, messages, char, conversation_id
                 ):
                     if event["type"] == "token":
                         full_text += event["content"]
@@ -703,9 +772,10 @@ class ChatService:
         text_connector: Any,
         messages: list[dict[str, Any]],
         char: CharacterCard,
+        conversation_id: str,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream using tool calling; handle generate_image tool calls."""
-        tools = [_IMAGE_TOOL]
+        tools = [_IMAGE_TOOL, _SCHEDULE_PROACTIVE_TOOL, _CANCEL_SCHEDULE_TOOL, _LIST_SCHEDULES_TOOL]
 
         # Extract optional parameters from connector config
         connector_config = getattr(text_connector, "config", None)
@@ -733,6 +803,99 @@ class ChatService:
                 yield {"type": "image_start", "generation_id": gen_id, "prompt": prompt}
                 async for img_event in self._handle_image(char, gen_id, prompt, text_connector, messages):
                     yield img_event
+            elif event["type"] == "tool_call":
+                try:
+                    result = await self._handle_proactive_tool_call(
+                        conversation_id=conversation_id,
+                        character_id=char.id,
+                        tool_name=str(event.get("name", "")),
+                        arguments=event.get("arguments", {}) or {},
+                    )
+                    if result is not None:
+                        yield {"type": "tool_result", "name": str(event.get("name", "")), "result": result}
+                except Exception as exc:
+                    logger.warning("Proactive tool call failed: %s", exc)
+                    yield {"type": "warning", "detail": "A proactive tool call failed."}
+
+    async def _handle_proactive_tool_call(
+        self,
+        *,
+        conversation_id: str,
+        character_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        from ..models.character import ProactiveConfig, ScheduleDefinition
+        from ..services.schedule_instance_service import ScheduleInstanceService
+        from ..services.timezone_service import TimezoneService
+
+        sched_svc = ScheduleInstanceService(self._conversation_service.data_dir)
+        if tool_name == "schedule_proactive_message":
+            ext = self._character_service.get_character(character_id).data.extensions.get("aubergerp", {})
+            proactive = ProactiveConfig(**(ext.get("proactive", {}) if isinstance(ext, dict) else {}))
+            defn = ScheduleDefinition(
+                id=str(arguments.get("id") or f"tool_{uuid.uuid4().hex[:12]}"),
+                enabled=bool(arguments.get("enabled", True)),
+                type=str(arguments.get("type", "after_delay")),  # type: ignore[arg-type]
+                time=arguments.get("time"),
+                start=arguments.get("start"),
+                end=arguments.get("end"),
+                delay_minutes=arguments.get("delay_minutes"),
+                inactivity_minutes=arguments.get("inactivity_minutes"),
+                not_before_time=arguments.get("not_before_time"),
+                minimum_cooldown_minutes=arguments.get("minimum_cooldown_minutes"),
+                one_shot=bool(arguments.get("one_shot", False)),
+                instruction=str(arguments.get("instruction", "")).strip(),
+            )
+            sched_svc.get_or_create(
+                defn=defn,
+                character_id=character_id,
+                conversation_id=conversation_id,
+                channel=self._channel,
+                channel_instance_id=self._channel_instance_id,
+                external_user_id=self._external_user_id or self._session_token or "web-user",
+                external_chat_id=self._external_chat_id,
+                timezone=TimezoneService(self._conversation_service.data_dir).get_timezone_name(
+                    self._channel,
+                    self._channel_instance_id,
+                    self._external_user_id or self._session_token or "web-user",
+                )
+                or "UTC",
+                origin="character-tool",
+                decision_mode=proactive.decision_mode,
+                proactive=proactive,
+            )
+            return {"status": "scheduled", "id": defn.id}
+
+        if tool_name == "cancel_scheduled_message":
+            schedule_id = str(arguments.get("id", "")).strip()
+            if not schedule_id:
+                return {"status": "ignored", "reason": "missing id"}
+            rows = sched_svc.list_for_conversation(conversation_id)
+            deleted = 0
+            for row in rows:
+                if row.schedule_def_id == schedule_id:
+                    sched_svc.delete_instance(row.id)
+                    deleted += 1
+            return {"status": "cancelled", "id": schedule_id, "deleted": deleted}
+
+        if tool_name == "list_scheduled_messages":
+            rows = sched_svc.list_for_conversation(conversation_id)
+            return {
+                "status": "ok",
+                "count": len(rows),
+                "items": [
+                    {
+                        "id": r.schedule_def_id,
+                        "origin": r.origin,
+                        "trigger_type": r.trigger_type,
+                        "enabled": r.enabled,
+                        "next_run_at": r.next_run_at.isoformat() if r.next_run_at else None,
+                    }
+                    for r in rows
+                ],
+            }
+        return None
 
     async def _generate_image_prompt(
         self,

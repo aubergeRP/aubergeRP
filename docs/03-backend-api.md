@@ -829,6 +829,8 @@ Create Instance
 | `external_user_id` | string | yes |
 | `external_chat_id` | string | no |
 | `timezone` | string | no |
+| `origin` | string | no |
+| `decision_mode` | string | no |
 
 **Parameters:**
 

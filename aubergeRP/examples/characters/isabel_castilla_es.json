@@ -26,6 +26,33 @@
       "depth_prompt": {
         "prompt": "El conflicto se centra en la culminación de la Reconquista y el inicio de la era de los descubrimientos. La tensión política es alta.",
         "depth": 4
+      },
+      "aubergerp": {
+        "proactive": {
+          "enabled": true,
+          "decision_mode": "contextual",
+          "minimum_cooldown_minutes": 360,
+          "maximum_active_schedules_per_conversation": 10,
+          "maximum_scheduling_horizon_minutes": 20160
+        },
+        "schedules": [
+          {
+            "id": "audiencia_matinal",
+            "enabled": true,
+            "type": "daily_at",
+            "time": "10:00",
+            "instruction": "Abrir una breve audiencia matinal con {{user}} para preguntar por sus planes y deberes del día."
+          },
+          {
+            "id": "seguimiento_mision",
+            "enabled": true,
+            "type": "after_delay",
+            "delay_minutes": 1080,
+            "not_before_time": "09:00",
+            "minimum_cooldown_minutes": 720,
+            "instruction": "Retoma de forma natural una misión o decisión pendiente mencionada por {{user}}."
+          }
+        ]
       }
     }
   }

@@ -14,6 +14,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
+from ..services.schedule_instance_service import ScheduleInstanceService
 from ..services.timezone_service import InvalidTimezoneError, TimezoneService
 
 router = APIRouter(prefix="/timezone", tags=["timezone"])
@@ -74,4 +75,11 @@ def set_timezone(
         tz = svc.set_timezone(_WEB_CHANNEL, _WEB_INSTANCE, x_session_token, body.timezone)
     except InvalidTimezoneError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    from ..config import get_config
+    ScheduleInstanceService(get_config().app.data_dir).update_timezone_for_user(
+        channel=_WEB_CHANNEL,
+        channel_instance_id=_WEB_INSTANCE,
+        external_user_id=x_session_token,
+        timezone=tz,
+    )
     return TimezoneResponse(timezone=tz)

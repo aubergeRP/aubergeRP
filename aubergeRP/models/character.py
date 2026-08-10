@@ -20,14 +20,31 @@ class ScheduleDefinition(BaseModel):
 
     id: str = Field(..., min_length=1, max_length=100)
     enabled: bool = True
-    type: Literal["daily_at", "daily_window"]
+    type: Literal["daily_at", "daily_window", "after_delay", "after_inactivity"]
     # Used by daily_at: local time "HH:MM"
     time: str | None = None
     # Used by daily_window: local time range "HH:MM"
     start: str | None = None
     end: str | None = None
+    # Used by after_delay / after_inactivity
+    delay_minutes: int | None = None
+    inactivity_minutes: int | None = None
+    # Optional local-time floor for event-based triggers ("after 09:00")
+    not_before_time: str | None = None
+    # Optional per-schedule cooldown override
+    minimum_cooldown_minutes: int | None = None
+    # One-off schedules disable themselves after first successful send/skip
+    one_shot: bool = False
     # Natural-language instruction passed to the LLM at trigger time
     instruction: str = Field(..., min_length=1)
+
+
+class ProactiveConfig(BaseModel):
+    enabled: bool = True
+    decision_mode: Literal["always_send", "contextual"] = "contextual"
+    minimum_cooldown_minutes: int = 180
+    maximum_active_schedules_per_conversation: int = 20
+    maximum_scheduling_horizon_minutes: int = 60 * 24 * 30
 
 
 class CharacterData(BaseModel):
