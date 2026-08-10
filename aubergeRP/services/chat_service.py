@@ -994,7 +994,7 @@ class ChatService:
                 # Fallback when no text connector or prompt generation failed
                 char_desc = (char.data.description or "")[:300]
                 prompt = f"{char.data.name}. {char_desc}".strip() if char_desc else char.data.name
-            auberge = char.data.extensions.get("aubergeRP", {})
+            auberge = char.data.extensions.get("aubergerp", {})
             prefix = auberge.get("image_prompt_prefix", "")
             negative = auberge.get("negative_prompt", "")
             full_prompt = f"{prefix} {prompt}".strip() if prefix else prompt

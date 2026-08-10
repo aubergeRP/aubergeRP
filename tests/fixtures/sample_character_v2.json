@@ -15,7 +15,7 @@
     "character_version": "1.0",
     "tags": ["minstrel", "human", "tavern"],
     "extensions": {
-      "aubergeRP": {
+      "aubergerp": {
         "image_prompt_prefix": "minstrel, lute, medieval tavern",
         "negative_prompt": "blurry, deformed"
       }

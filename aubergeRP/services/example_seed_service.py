@@ -38,7 +38,7 @@ def _save_state(path: Path, characters: dict[str, Any]) -> None:
 def _find_seeded_character_id(service: CharacterService, slug: str) -> str | None:
     for summary in service.list_characters():
         card = service.get_character(summary.id)
-        ext = card.data.extensions.get("aubergeRP", {})
+        ext = card.data.extensions.get("aubergerp", {})
         if isinstance(ext, dict) and ext.get("seed_example_slug") == slug:
             return card.id
     return None
@@ -54,12 +54,12 @@ def _inject_seed_metadata(raw: dict[str, Any], slug: str, checksum: str) -> None
         data["extensions"] = ext
     if not isinstance(ext, dict):
         raise ValueError("Invalid character card: 'extensions' must be an object")
-    auberge_ext = ext.get("aubergeRP")
+    auberge_ext = ext.get("aubergerp")
     if auberge_ext is None:
         auberge_ext = {}
-        ext["aubergeRP"] = auberge_ext
+        ext["aubergerp"] = auberge_ext
     if not isinstance(auberge_ext, dict):
-        raise ValueError("Invalid character card: 'extensions.aubergeRP' must be an object")
+        raise ValueError("Invalid character card: 'extensions.aubergerp' must be an object")
     auberge_ext["seed_example_slug"] = slug
     auberge_ext["seed_example_checksum"] = checksum
 

@@ -14,13 +14,6 @@ When using the project and navigating, I sometimes add items here that I think a
 
 ## Medium priority
 
-- [ ] **Unify the character-card extension key** — image settings are stored
-  under `data.extensions.aubergeRP` (camelCase, `character_service.py`,
-  `chat_service.py:997`) while schedules/proactive settings use
-  `data.extensions.aubergerp` (lowercase, `proactive_scheduler_service.py`,
-  `conversations.py`, `frontend/js/admin/characters.js`). Two keys coexist in
-  every card. Pick one, migrate existing cards, and keep reading the legacy key.
-
 - [ ] **Hallucination mitigation** — detect clearly off-topic or repetitive responses; retry with a corrective system message. Config: `chat.hallucination_retry`.
 
 - [ ] **Configurable NSFW filter** — pre/post-processing layer. Config: `chat.nsfw_filter` (`off` | `warn` | `block`). Actually the implementation is very incomplete, with just a declaration on connectors but no actual filtering logic. There is a prompt for this, make sure it is used correctly. 

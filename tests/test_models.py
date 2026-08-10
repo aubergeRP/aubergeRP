@@ -43,10 +43,10 @@ class TestCharacterData:
             creator_notes="Notes here",
             character_version="1.0",
             tags=["elf", "ranger"],
-            extensions={"aubergeRP": {"image_prompt_prefix": "elf woman"}},
+            extensions={"aubergerp": {"image_prompt_prefix": "elf woman"}},
         )
         assert cd.tags == ["elf", "ranger"]
-        assert cd.extensions["aubergeRP"]["image_prompt_prefix"] == "elf woman"
+        assert cd.extensions["aubergerp"]["image_prompt_prefix"] == "elf woman"
 
     def test_name_required(self):
         with pytest.raises(Exception):

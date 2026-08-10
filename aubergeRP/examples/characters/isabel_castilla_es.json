@@ -28,6 +28,8 @@
         "depth": 4
       },
       "aubergerp": {
+        "image_prompt_prefix": "",
+        "negative_prompt": "",
         "proactive": {
           "enabled": true,
           "decision_mode": "contextual",

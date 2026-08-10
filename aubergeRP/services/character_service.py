@@ -23,11 +23,20 @@ class CharacterImportError(ValueError):
     pass
 
 
+AUBERGE_EXT_KEY = "aubergerp"
+
 _EMPTY_AUBERGE_EXT: dict[str, Any] = {"image_prompt_prefix": "", "negative_prompt": ""}
 
 
 def _ensure_auberge_ext(extensions: dict[str, Any]) -> None:
-    extensions.setdefault("aubergeRP", dict(_EMPTY_AUBERGE_EXT))
+    ext = extensions.get(AUBERGE_EXT_KEY)
+    if not isinstance(ext, dict):
+        ext = {}
+    else:
+        ext = dict(ext)
+    for key, default in _EMPTY_AUBERGE_EXT.items():
+        ext.setdefault(key, default)
+    extensions[AUBERGE_EXT_KEY] = ext
 
 
 def _upgrade_v1_to_v2(v1: dict[str, Any]) -> dict[str, Any]:

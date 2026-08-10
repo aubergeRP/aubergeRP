@@ -25,7 +25,7 @@ aubergeRP uses **SillyTavern V2** (`chara_card_v2`) as its native format, extend
     "creator_notes": "",
     "tags": ["fantasy", "elf"],
     "extensions": {
-      "aubergeRP": {
+      "aubergerp": {
         "image_prompt_prefix": "elf woman, fantasy tavern",
         "negative_prompt": "blurry, low quality"
       }
@@ -53,17 +53,15 @@ Export strips the wrapper fields (`id`, `has_avatar`, timestamps) — the result
 
 Macros are resolved at prompt-build time (in `chat_service.py`), not at storage time.
 
-## aubergeRP extensions (`data.extensions.aubergeRP`)
+## aubergeRP extensions (`data.extensions.aubergerp`)
+
+All aubergeRP-specific settings live under a single, **lowercase** key,
+`data.extensions.aubergerp`:
 
 | Field | Description |
 |---|---|
 | `image_prompt_prefix` | Prepended to every image generation prompt for this character |
 | `negative_prompt` | Default negative prompt for image generation |
-Proactive behaviour uses a **separate, lowercase** key,
-`data.extensions.aubergerp`:
-
-| Field | Description |
-|---|---|
 | `proactive` | Proactive-messaging defaults (`enabled`, `decision_mode`, cooldowns, limits) |
 | `schedules` | List of schedule definitions — when the character messages first |
 

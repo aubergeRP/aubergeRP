@@ -44,7 +44,7 @@ def test_seed_examples_is_idempotent(monkeypatch, tmp_path: Path) -> None:
     assert len(cards) == 1
 
     card = svc.get_character(cards[0].id)
-    ext = card.data.extensions.get("aubergeRP", {})
+    ext = card.data.extensions.get("aubergerp", {})
     assert isinstance(ext, dict)
     assert ext.get("seed_example_slug") == "captain_nemo"
     assert card.has_avatar is True

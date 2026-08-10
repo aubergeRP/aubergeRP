@@ -345,8 +345,8 @@ async function openEditDialog(id) {
       fScenario.value     = d.scenario || '';
       fSystemPrompt.value = d.system_prompt || '';
       fTags.value         = Array.isArray(d.tags) ? d.tags.join(', ') : (d.tags || '');
-      fImgPrompt.value    = d.extensions?.auberge?.image_prompt_prefix || '';
-      fNegPrompt.value    = d.extensions?.auberge?.negative_prompt || '';
+      fImgPrompt.value    = d.extensions?.aubergerp?.image_prompt_prefix || '';
+      fNegPrompt.value    = d.extensions?.aubergerp?.negative_prompt || '';
       fCreator.value      = d.creator || '';
       fCreatorNotes.value = d.creator_notes || '';
       editingSchedules    = JSON.parse(JSON.stringify(d.extensions?.aubergerp?.schedules || []));
@@ -416,11 +416,9 @@ async function handleSave() {
     creator:      fCreator.value.trim(),
     creator_notes: fCreatorNotes.value.trim(),
     extensions: {
-      auberge: {
+      aubergerp: {
         image_prompt_prefix: fImgPrompt.value.trim(),
         negative_prompt:     fNegPrompt.value.trim(),
-      },
-      aubergerp: {
         schedules: collectSchedules(),
         proactive: editingProactive,
       },

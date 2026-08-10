@@ -68,7 +68,7 @@ def test_roundtrip_v2_card(tmp_path):
             "name": "RoundTrip",
             "description": "Testing round-trip encode/decode.",
             "tags": ["test"],
-            "extensions": {"aubergeRP": {"image_prompt_prefix": "", "negative_prompt": ""}},
+            "extensions": {"aubergerp": {"image_prompt_prefix": "", "negative_prompt": ""}},
         },
     }
     src = FIXTURES / "sample_character_v1.png"

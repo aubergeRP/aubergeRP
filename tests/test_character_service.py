@@ -66,15 +66,26 @@ def test_create_persists_to_db(tmp_path):
 def test_create_ensures_auberge_extension(tmp_path):
     svc = make_service(tmp_path)
     card = svc.create_character(valid_data())
-    assert "aubergeRP" in card.data.extensions
-    assert "image_prompt_prefix" in card.data.extensions["aubergeRP"]
+    assert "aubergerp" in card.data.extensions
+    assert "image_prompt_prefix" in card.data.extensions["aubergerp"]
 
 
 def test_create_preserves_existing_auberge_extension(tmp_path):
     svc = make_service(tmp_path)
-    data = valid_data(extensions={"aubergeRP": {"image_prompt_prefix": "elf", "negative_prompt": "blur"}})
+    data = valid_data(extensions={"aubergerp": {"image_prompt_prefix": "elf", "negative_prompt": "blur"}})
     card = svc.create_character(data)
-    assert card.data.extensions["aubergeRP"]["image_prompt_prefix"] == "elf"
+    assert card.data.extensions["aubergerp"]["image_prompt_prefix"] == "elf"
+
+
+def test_create_merges_image_defaults_into_existing_auberge_extension(tmp_path):
+    svc = make_service(tmp_path)
+    schedules = [{"id": "morning", "type": "daily_window", "start": "08:00", "end": "09:00"}]
+    data = valid_data(extensions={"aubergerp": {"schedules": schedules}})
+    card = svc.create_character(data)
+    ext = card.data.extensions["aubergerp"]
+    assert ext["schedules"] == schedules
+    assert ext["image_prompt_prefix"] == ""
+    assert ext["negative_prompt"] == ""
 
 
 def test_create_has_avatar_false_by_default(tmp_path):
@@ -252,7 +263,7 @@ def test_import_json_ensures_auberge_extension(tmp_path):
     svc = make_service(tmp_path)
     raw = json.dumps({"name": "X", "description": "Y"}).encode()
     card = svc.import_character_json(raw)
-    assert "aubergeRP" in card.data.extensions
+    assert "aubergerp" in card.data.extensions
 
 
 # ---------------------------------------------------------------------------
