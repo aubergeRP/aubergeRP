@@ -8,13 +8,6 @@ When using the project and navigating, I sometimes add items here that I think a
 
 ## High priority
 
-- [ ] **Telegram webhook receiving endpoint** — webhook mode registers
-  `{webhook_url}/api/telegram/webhook/{bot_id}` with Telegram and
-  `TelegramRuntimeManager.dispatch_update()` is ready to consume updates, but no
-  FastAPI route serves that path. Add it in `routers/telegram.py` (validate the
-  `X-Telegram-Bot-Api-Secret-Token` header against the stored `webhook_secret`).
-  Until then, webhook bots silently receive nothing — only polling mode works.
-
 - [ ] **Admin error log viewer** — expose a `/api/admin/logs` endpoint (or a dedicated admin UI page) so administrators can inspect recent server errors without SSH access. This is especially useful to diagnose image-generation failures, since connector errors are currently logged server-side only and replaced by a generic message in the UI.
 
 ---

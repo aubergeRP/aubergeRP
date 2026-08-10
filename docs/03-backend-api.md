@@ -1176,6 +1176,25 @@ Test Bot
 
 **Responses:** `200` Successful Response · `422` Validation Error
 
+### `POST /api/telegram/webhook/{bot_id}`
+
+Receive Webhook
+
+Receive updates pushed by Telegram in webhook mode.
+
+Called by Telegram itself, so it is not behind the admin token: the
+``X-Telegram-Bot-Api-Secret-Token`` header is the authentication.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-telegram-bot-api-secret-token` | header | string | null | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
 ### `GET /api/telegram/bots/{bot_id}/status`
 
 Bot Status

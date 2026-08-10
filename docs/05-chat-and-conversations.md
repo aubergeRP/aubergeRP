@@ -47,9 +47,13 @@ enable and deregisters it on disable. Telegram is told to POST updates to
 `TelegramRuntimeManager.dispatch_update()` feeds into the same handlers as
 polling mode.
 
-> ⚠️ The receiving HTTP route is **not implemented yet** — only the registration
-> side and the dispatch helper exist, so webhook bots currently receive nothing.
-> See [TODO.md](../TODO.md). Use polling mode in the meantime.
+That route (`POST /api/telegram/webhook/{bot_id}`) is public — Telegram calls it,
+so it is not behind the admin token. Authentication is the
+`X-Telegram-Bot-Api-Secret-Token` header, compared against the bot's stored
+`webhook_secret` when one is set. The update is dispatched in the background and
+the route answers `{"ok": true}` right away, so a slow generation never causes
+Telegram to retry the update. Unknown bot → 404, disabled bot → 409, bad secret
+→ 403.
 
 See the Telegram section of [03-backend-api.md](03-backend-api.md) for bot CRUD.
 

@@ -654,3 +654,101 @@ async def test_dispatch_update_no_op_when_no_dispatcher(tmp_path):
     mgr = TelegramRuntimeManager(data_dir=data_dir)
     # No bot/dispatcher registered — should not raise.
     await mgr.dispatch_update("missing-bot", {"update_id": 99})
+
+
+# ── Webhook receiving endpoint ────────────────────────────────────────────────
+
+
+def _make_webhook_bot(client, *, enabled=True, secret="s3cret"):
+    """Create a bot configured for webhook mode; return its summary dict."""
+    from aubergeRP.config import get_config
+    from aubergeRP.database import init_db
+    from aubergeRP.models.character import CharacterData
+    from aubergeRP.services.character_service import CharacterService
+    data_dir = Path(get_config().app.data_dir)
+    init_db(data_dir)
+    char = CharacterService(data_dir=data_dir).create_character(
+        CharacterData(name="Alice", description="Test")
+    )
+    return client.post("/api/telegram/bots/", json={
+        "name": "WH Bot",
+        "token": "tok_wh",
+        "character_id": char.id,
+        "enabled": enabled,
+        "update_mode": "webhook",
+        "webhook_url": "https://example.test",
+        "webhook_secret": secret,
+    }).json()
+
+
+def test_webhook_endpoint_dispatches_update(client):
+    bot = _make_webhook_bot(client)
+    mgr = MagicMock()
+    mgr.dispatch_update = AsyncMock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.post(
+            f"/api/telegram/webhook/{bot['id']}",
+            json={"update_id": 42},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "s3cret"},
+        )
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    mgr.dispatch_update.assert_awaited_once_with(bot["id"], {"update_id": 42})
+
+
+def test_webhook_endpoint_rejects_bad_secret(client):
+    bot = _make_webhook_bot(client)
+    mgr = MagicMock()
+    mgr.dispatch_update = AsyncMock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.post(
+            f"/api/telegram/webhook/{bot['id']}",
+            json={"update_id": 42},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
+        )
+    assert resp.status_code == 403
+    mgr.dispatch_update.assert_not_awaited()
+
+
+def test_webhook_endpoint_rejects_missing_secret_header(client):
+    bot = _make_webhook_bot(client)
+    resp = client.post(f"/api/telegram/webhook/{bot['id']}", json={"update_id": 1})
+    assert resp.status_code == 403
+
+
+def test_webhook_endpoint_unknown_bot(client):
+    resp = client.post("/api/telegram/webhook/nope", json={"update_id": 1})
+    assert resp.status_code == 404
+
+
+def test_webhook_endpoint_disabled_bot(client):
+    bot = _make_webhook_bot(client, enabled=False)
+    resp = client.post(
+        f"/api/telegram/webhook/{bot['id']}",
+        json={"update_id": 1},
+        headers={"X-Telegram-Bot-Api-Secret-Token": "s3cret"},
+    )
+    assert resp.status_code == 409
+
+
+def test_webhook_endpoint_no_secret_configured_accepts(client):
+    bot = _make_webhook_bot(client, secret="")
+    mgr = MagicMock()
+    mgr.dispatch_update = AsyncMock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.post(f"/api/telegram/webhook/{bot['id']}", json={"update_id": 7})
+    assert resp.status_code == 200
+    mgr.dispatch_update.assert_awaited_once()
+
+
+def test_webhook_endpoint_rejects_invalid_payload(client):
+    bot = _make_webhook_bot(client)
+    resp = client.post(
+        f"/api/telegram/webhook/{bot['id']}",
+        content=b"not json",
+        headers={
+            "X-Telegram-Bot-Api-Secret-Token": "s3cret",
+            "Content-Type": "application/json",
+        },
+    )
+    assert resp.status_code == 400

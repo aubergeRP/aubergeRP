@@ -32,7 +32,7 @@ The Docker setup ships with a bundled [LocalAI](https://localai.io/) instance â€
 * **SillyTavern Compatible:** Seamlessly import and export your favorite `.png` or `.json` character cards.
 * **Smart Image Generation:** The AI triggers image generation automatically based on the story context (via ComfyUI or SD-WebUI).
 * **Lightweight Stack:** No complex build steps. Just Python (FastAPI) and Vanilla JS.
-* **Telegram Bots:** Turn any character into a Telegram bot (long-polling; webhook mode is in progress), with an optional **dialogue-only** style that drops narration for a natural instant-messaging feel.
+* **Telegram Bots:** Turn any character into a Telegram bot (long-polling or webhook), with an optional **dialogue-only** style that drops narration for a natural instant-messaging feel.
 * **Proactive Characters:** Characters can message you first â€” on a schedule defined in the character card (daily, weekly, interval, one-shot) or when the Proactive Behavior Engine decides a message is natural.
 * **Timezone Aware:** Each user (web session or Telegram chat) has their own IANA timezone, so "good morning" arrives in the morning.
 * **Admin Dashboard:** Easily manage your connectors, characters, and check your usage stats.

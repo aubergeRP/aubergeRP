@@ -1,10 +1,11 @@
 """Telegram bot admin router."""
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 
 try:
     from aiogram import Bot  # noqa: F401 (imported here so tests can patch it)
@@ -111,7 +112,14 @@ async def enable_bot(
     mgr = _get_manager()
     if mgr is not None:
         token = svc.get_bot_token(bot_id)
-        await mgr.start_bot(bot_id, token, result.character_id, result.dialogue_only)
+        await mgr.start_bot(
+            bot_id,
+            token,
+            result.character_id,
+            result.dialogue_only,
+            update_mode=result.update_mode,
+            webhook_url=result.webhook_url,
+        )
     return result
 
 
@@ -166,6 +174,54 @@ async def test_bot(
         logger.warning("Telegram test connection failed for bot %s: %s", bot_id, error)
 
     return svc.record_test_result(bot_id, tg_bot_id, tg_username, error)
+
+
+# ── Webhook receiver ──────────────────────────────────────────────────────────
+
+
+@router.post("/webhook/{bot_id}", status_code=200)
+async def receive_webhook(
+    bot_id: str,
+    request: Request,
+    background: BackgroundTasks,
+    svc: TelegramBotService = Depends(get_telegram_service),
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+) -> dict[str, bool]:
+    """Receive updates pushed by Telegram in webhook mode.
+
+    Called by Telegram itself, so it is not behind the admin token: the
+    ``X-Telegram-Bot-Api-Secret-Token`` header is the authentication.
+    """
+    try:
+        summary = svc.get_bot(bot_id)
+    except TelegramBotNotFoundError:
+        raise _not_found(bot_id)
+
+    expected = svc.get_bot_webhook_secret(bot_id)
+    if expected:
+        provided = x_telegram_bot_api_secret_token or ""
+        if not hmac.compare_digest(provided, expected):
+            logger.warning("Telegram webhook for bot %s: bad secret token", bot_id)
+            raise HTTPException(status_code=403, detail="Invalid secret token")
+
+    if not summary.enabled:
+        raise HTTPException(status_code=409, detail=f"Telegram bot '{bot_id}' is disabled")
+
+    mgr = _get_manager()
+    if mgr is None:
+        raise HTTPException(status_code=503, detail="Telegram runtime is not available")
+
+    try:
+        update = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    if not isinstance(update, dict):
+        raise HTTPException(status_code=400, detail="Invalid update payload")
+
+    # Answer Telegram immediately; generating a reply can take a while and
+    # Telegram would retry the update on timeout.
+    background.add_task(mgr.dispatch_update, bot_id, update)
+    return {"ok": True}
 
 
 # ── Runtime status ────────────────────────────────────────────────────────────
