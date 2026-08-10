@@ -2,116 +2,6 @@
 
 Design
 ------
-- Each enabled bot runs in its own asyncio Task using aiogram's polling.
-- Bots are isolated: stopping one does not affect others.
-- Generation is serialized *per-conversation* using per-key asyncio.Lock stored
-  in a dict.  Different users on the same bot, and same user across different
-  bots, all run independently.
-- Tokens are never logged.
-
-Private-chat-only MVP
----------------------
-Group and supergroup messages are silently ignored.
-"""
-from __future__ import annotations
-
-import asyncio
-import contextlib
-import logging
-from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from aiogram import Bot, Dispatcher
-    from aiogram.types import Message
-
-logger = logging.getLogger(__name__)
-
-# Maximum Telegram message length (Bot API limit).
-_TG_MAX_LEN = 4096
-
-
-def split_message(text: str, max_len: int = _TG_MAX_LEN) -> list[str]:
-    """Split a long text into chunks ≤ max_len, preferring paragraph breaks."""
-    if len(text) <= max_len:
-        return [text]
-
-    parts: list[str] = []
-    remaining = text
-    while len(remaining) > max_len:
-        # Try to split at a double-newline (paragraph boundary).
-        idx = remaining.rfind("\n\n", 0, max_len)
-        if idx == -1:
-            # Fall back to any newline.
-            idx = remaining.rfind("\n", 0, max_len)
-        if idx == -1:
-            # Hard split.
-            idx = max_len
-        parts.append(remaining[:idx])
-        remaining = remaining[idx:]
-    if remaining:
-        parts.append(remaining)
-    return parts
-
-
-class TelegramRuntimeManager:
-    """Manages the lifecycle of one aiogram Dispatcher per Telegram bot."""
-
-    def __init__(self, data_dir: str | Path) -> None:
-        self._data_dir = Path(data_dir)
-        # bot_id → asyncio.Task
-        self._tasks: dict[str, asyncio.Task[None]] = {}
-        # per-conversation asyncio.Lock for serialized generation
-        self._conv_locks: dict[str, asyncio.Lock] = {}
-
-    # ── Public interface ──────────────────────────────────────────────────────
-
-    async def start_enabled_bots(self) -> None:
-        from .telegram_bot_service import TelegramBotService
-        svc = TelegramBotService(self._data_dir)
-        for summary, token in svc.list_enabled_bots_with_tokens():
-            await self.start_bot(summary.id, token, summary.character_id, summary.dialogue_only)
-
-    async def start_bot(self, bot_id: str, token: str, character_id: str, dialogue_only: bool = False) -> None:
-        if bot_id in self._tasks and not self._tasks[bot_id].done():
-            return
-        task = asyncio.create_task(
-            self._run_bot(bot_id, token, character_id, dialogue_only),
-            name=f"telegram-bot-{bot_id}",
-        )
-        self._tasks[bot_id] = task
-
-    async def stop_bot(self, bot_id: str) -> None:
-        task = self._tasks.pop(bot_id, None)
-        if task and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
-
-    async def restart_bot(self, bot_id: str) -> None:
-        from .telegram_bot_service import TelegramBotService
-        await self.stop_bot(bot_id)
-        svc = TelegramBotService(self._data_dir)
-        try:
-            summary = svc.get_bot(bot_id)
-        except KeyError:
-            return
-        if summary.enabled:
-            token = svc.get_bot_token(bot_id)
-            await self.start_bot(bot_id, token, summary.character_id, summary.dialogue_only)
-
-    async def stop_all(self) -> None:
-        for bot_id in list(self._tasks):
-            await self.stop_bot(bot_id)
-
-    def is_running(self, bot_id: str) -> bool:
-        task = self._tasks.get(bot_id)
-        return task is not None and not task.done()
-
-"""TelegramRuntimeManager — runs multiple aiogram bots concurrently.
-
-Design
-------
 - Each enabled bot runs in its own asyncio Task.
 - Polling mode: aiogram's built-in long-polling loop.
 - Webhook mode: sets a Telegram webhook then keeps a sentinel task alive;
@@ -146,6 +36,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from aiogram import Bot, Dispatcher
     from aiogram.types import Message
+
+    from ..services.chat_service import GenerationResult
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +168,7 @@ class TelegramRuntimeManager:
         task = self._tasks.get(bot_id)
         return task is not None and not task.done()
 
-    async def dispatch_update(self, bot_id: str, update_data: dict) -> None:
+    async def dispatch_update(self, bot_id: str, update_data: dict[str, object]) -> None:
         """Feed a raw Telegram update dict into the dispatcher for *bot_id*.
 
         Used by the webhook HTTP endpoint to process incoming updates without
@@ -343,6 +235,7 @@ class TelegramRuntimeManager:
             from aiogram import Bot, Dispatcher
             from aiogram.client.default import DefaultBotProperties
             from aiogram.enums import ParseMode
+
             from .telegram_bot_service import TelegramBotService
 
             bot = Bot(
@@ -728,17 +621,17 @@ class TelegramRuntimeManager:
         content = text
         if image_bytes is not None:
             import tempfile
-            tmp = tempfile.NamedTemporaryFile(
-                suffix=".jpg", dir=images_dir, delete=False
-            )
             try:
-                tmp.write(image_bytes)
-                tmp.flush()
-                tmp.close()
+                with tempfile.NamedTemporaryFile(
+                    suffix=".jpg", dir=images_dir, delete=False
+                ) as tmp:
+                    tmp.write(image_bytes)
+                    tmp.flush()
+                    tmp_name = tmp.name
                 # Prepend an image marker using the same convention as the
                 # frontend — ChatService will pick it up as an inline image
                 # reference when processing the user message.
-                content = f"[IMG:{tmp.name}] {text}".strip()
+                content = f"[IMG:{tmp_name}] {text}".strip()
             except Exception:
                 logger.warning("Failed to save incoming Telegram photo to temp file")
 

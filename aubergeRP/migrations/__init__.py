@@ -41,7 +41,6 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         m006_add_timezone,  # noqa: PLC0415
         m007_add_schedules,  # noqa: PLC0415
         m008_add_webhook,  # noqa: PLC0415
-        m008_add_webhook,  # noqa: PLC0415
     )
     return {
         1: ("Initial schema and JSON import", m001_initial.migrate),

@@ -905,6 +905,9 @@ Create Bot
 | `character_id` | string | yes |
 | `enabled` | boolean | no |
 | `dialogue_only` | boolean | no |
+| `update_mode` | string | no |
+| `webhook_url` | string | no |
+| `webhook_secret` | string | no |
 
 **Parameters:**
 
@@ -942,6 +945,9 @@ Update Bot
 | `character_id` | string | null | no |
 | `enabled` | boolean | null | no |
 | `dialogue_only` | boolean | null | no |
+| `update_mode` | string | null | no |
+| `webhook_url` | string | null | no |
+| `webhook_secret` | string | null | no |
 
 **Parameters:**
 
