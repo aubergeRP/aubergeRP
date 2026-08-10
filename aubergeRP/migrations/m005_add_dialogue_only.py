@@ -15,6 +15,6 @@ def migrate(session: Session) -> None:
             )
         )
     except Exception as exc:
-        if "duplicate column" in str(exc).lower():
+        if "already has a column" in str(exc).lower() or "duplicate column" in str(exc).lower():
             return
         raise
