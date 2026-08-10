@@ -30,6 +30,7 @@ from .routers import media as media_router
 from .routers import prompts as prompts_router
 from .routers import statistics as statistics_router
 from .routers import telegram as telegram_router
+from .routers import timezone as timezone_router
 from .services.example_seed_service import seed_example_characters
 
 _BUILTIN_WORKFLOWS_DIR = Path(__file__).parent / "comfyui_workflows"
@@ -406,6 +407,7 @@ def create_app() -> FastAPI:
     app.include_router(statistics_router.router, prefix="/api")
     app.include_router(prompts_router.router, prefix="/api")
     app.include_router(telegram_router.router, prefix="/api")
+    app.include_router(timezone_router.router, prefix="/api")
 
     # ── API reference (Redoc) ───────────────────────────────────────────────
     @app.get("/api-docs", include_in_schema=False, response_class=HTMLResponse)
