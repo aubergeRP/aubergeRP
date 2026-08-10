@@ -162,7 +162,7 @@ async def test_bot(
         finally:
             await bot.session.close()
     except Exception as exc:
-        error = str(exc)
+        error = str(exc).replace(token, "<token>")
         logger.warning("Telegram test connection failed for bot %s: %s", bot_id, error)
 
     return svc.record_test_result(bot_id, tg_bot_id, tg_username, error)
