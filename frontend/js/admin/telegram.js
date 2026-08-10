@@ -9,9 +9,7 @@ import { adminFetch } from '/js/admin/auth.js';
 // ── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
-  const method = (options.method || 'GET').toUpperCase();
-  const isWrite = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method);
-  const res = isWrite ? await adminFetch(path, options) : await fetch(path, options);
+  const res = await adminFetch(path, options);
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try { const body = await res.json(); if (body.detail) detail = body.detail; } catch (_) {}
