@@ -412,7 +412,7 @@ class ChatService:
         )
 
     def _rollback_user_message(self, conversation_id: str, message_id: str | None) -> None:
-        if not message_id:
+        if message_id is None:
             return
         try:
             self._conversation_service.delete_message(conversation_id, message_id)

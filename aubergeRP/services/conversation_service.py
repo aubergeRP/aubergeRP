@@ -252,15 +252,16 @@ class ConversationService:
             session.delete(msg_row)
             session.flush()
             conv_row = session.get(ConversationRow, conversation_id)
-            if conv_row is not None:
-                timestamp_expr = cast(Any, MessageRow.timestamp)
-                latest_row = session.exec(
-                    select(MessageRow.timestamp)
-                    .where(
-                        MessageRow.conversation_id == conversation_id,
-                    )
-                    .order_by(timestamp_expr.desc())
-                ).first()
-                conv_row.updated_at = latest_row or conv_row.created_at
-                session.add(conv_row)
+            assert conv_row is not None
+
+            timestamp_expr = cast(Any, MessageRow.timestamp)
+            latest_row = session.exec(
+                select(MessageRow.timestamp)
+                .where(
+                    MessageRow.conversation_id == conversation_id,
+                )
+                .order_by(timestamp_expr.desc())
+            ).first()
+            conv_row.updated_at = latest_row or conv_row.created_at
+            session.add(conv_row)
             session.commit()
