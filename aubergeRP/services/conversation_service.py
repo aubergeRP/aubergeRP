@@ -71,6 +71,10 @@ class ConversationService:
         from ..database import get_engine
         return Session(get_engine(self._data_dir))
 
+    @property
+    def data_dir(self) -> Path:
+        return self._data_dir
+
     @staticmethod
     def _summary_from_row(conv_row: ConversationRow, message_count: int) -> ConversationSummary:
         return ConversationSummary(

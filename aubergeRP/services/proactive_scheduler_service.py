@@ -82,13 +82,14 @@ class ProactiveScheduler:
     async def _process_instance(
         self,
         row: ScheduleInstanceRow,
-        svc: "ScheduleInstanceService",
+        svc: ScheduleInstanceService,
         utc_now: datetime,
     ) -> None:
         from ..services.character_service import CharacterNotFoundError, CharacterService
 
         if not svc.claim_for_generation(row.id, utc_now=utc_now):
             return
+        now = utc_now or datetime.now(UTC)
         try:
             char_svc = CharacterService(data_dir=self._data_dir)
             try:
@@ -107,18 +108,18 @@ class ProactiveScheduler:
 
             if row.last_sent_at is not None and row.minimum_cooldown_minutes > 0:
                 last_sent = row.last_sent_at.replace(tzinfo=UTC)
-                if utc_now < last_sent + timedelta(minutes=row.minimum_cooldown_minutes):
+                if now < last_sent + timedelta(minutes=row.minimum_cooldown_minutes):
                     svc.complete_execution(
                         row.id,
                         defn,
                         status="skipped",
                         reason="cooldown",
-                        utc_now=utc_now,
+                        utc_now=now,
                     )
                     return
 
             zi = ZoneInfo(row.timezone)
-            local_time_str = utc_now.astimezone(zi).strftime("%Y-%m-%d %H:%M ") + row.timezone
+            local_time_str = now.astimezone(zi).strftime("%Y-%m-%d %H:%M ") + row.timezone
             injection = _build_proactive_injection(local_time_str, defn.instruction)
 
             message: str | None = None
@@ -130,7 +131,7 @@ class ProactiveScheduler:
                         defn,
                         status="skipped",
                         reason=decision.reason or "contextual_skip",
-                        utc_now=utc_now,
+                        utc_now=now,
                     )
                     return
                 message = decision.message.strip() or None
@@ -141,7 +142,7 @@ class ProactiveScheduler:
                 svc.mark_failed(row.id, "generation_failed", utc_now=utc_now)
                 return
 
-            await self._persist_assistant_message(row.conversation_id, message)
+            self._persist_assistant_message(row.conversation_id, message)
             adapter = make_delivery_adapter(row.channel, self._data_dir)
             try:
                 await adapter.deliver(
@@ -155,12 +156,12 @@ class ProactiveScheduler:
                     row.id,
                 )
 
-            svc.complete_execution(row.id, defn, status="sent", utc_now=utc_now, mark_sent=True)
+            svc.complete_execution(row.id, defn, status="sent", utc_now=now, mark_sent=True)
         except Exception:
             logger.exception("ProactiveScheduler: unexpected error for instance %s", row.id)
-            svc.mark_failed(row.id, "unexpected_error", utc_now=utc_now)
+            svc.mark_failed(row.id, "unexpected_error", utc_now=now)
 
-    async def _persist_assistant_message(self, conversation_id: str, message: str) -> None:
+    def _persist_assistant_message(self, conversation_id: str, message: str) -> None:
         from ..services.character_service import CharacterService
         from ..services.conversation_service import ConversationService
 
@@ -284,7 +285,7 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _get_schedule_definition(char: "CharacterCard", schedule_def_id: str) -> "ScheduleDefinition | None":
+def _get_schedule_definition(char: CharacterCard, schedule_def_id: str) -> ScheduleDefinition | None:
     from ..models.character import ScheduleDefinition
 
     ext = char.data.extensions.get("aubergerp", {})

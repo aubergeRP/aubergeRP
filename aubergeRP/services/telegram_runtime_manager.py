@@ -609,9 +609,9 @@ class TelegramRuntimeManager:
         conv_id: str,
         text: str,
         *,
-        bot_id: str,
-        user_id: str,
-        chat_id: str,
+        bot_id: str = "",
+        user_id: str = "0",
+        chat_id: str = "",
         dialogue_only: bool = False,
     ) -> GenerationResult:
         from ..config import get_config
@@ -643,7 +643,7 @@ class TelegramRuntimeManager:
             statistics_service=stats_svc,
             media_service=media_svc,
             channel="telegram",
-            channel_instance_id=bot_id,
+            channel_instance_id=bot_id or "telegram",
             external_user_id=user_id,
             external_chat_id=chat_id,
         )

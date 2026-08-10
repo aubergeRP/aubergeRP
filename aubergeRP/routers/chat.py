@@ -36,6 +36,20 @@ def get_session_token(x_session_token: str = Header(default="")) -> str:
     return x_session_token
 
 
+def _sanitize_stream_event(event: dict[str, object]) -> dict[str, object]:
+    if event.get("type") == "error":
+        detail = str(event.get("detail", ""))
+        if detail == "No active text connector configured":
+            return event
+        if "Traceback" not in detail and "\n" not in detail:
+            return event
+        return {
+            **event,
+            "detail": "An internal error occurred while processing the chat request.",
+        }
+    return event
+
+
 def get_chat_service(
     session_token: str = Depends(get_session_token),
 ) -> ChatService:
@@ -76,8 +90,9 @@ async def chat(
 ) -> StreamingResponse:
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in service.stream_chat(conversation_id, body.content):
-            await bus.publish(session_token, conversation_id, event)
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            sanitized = _sanitize_stream_event(event)
+            await bus.publish(session_token, conversation_id, sanitized)
+            yield f"data: {json.dumps(sanitized, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -106,7 +121,7 @@ async def chat_events(
             while True:
                 try:
                     event = await asyncio.wait_for(q.get(), timeout=_KEEPALIVE_TIMEOUT)
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps(_sanitize_stream_event(event), ensure_ascii=False)}\n\n"
                 except TimeoutError:
                     yield ": keepalive\n\n"
         finally:

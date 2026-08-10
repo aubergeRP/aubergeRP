@@ -1,4 +1,13 @@
-"""ScheduleInstanceService — runtime execution state for proactive schedules."""
+"""ScheduleInstanceService — runtime execution state for proactive schedules.
+
+Timezone / DST notes
+--------------------
+- ``next_run_at`` is stored as naive UTC in SQLite.
+- ``daily_at`` and ``daily_window`` always recalculate from IANA timezone data,
+  so DST transitions are handled without persisting fixed UTC offsets.
+- ``after_delay`` and ``after_inactivity`` are anchored to user activity and
+  re-based on each new user message.
+"""
 from __future__ import annotations
 
 import json
@@ -281,7 +290,7 @@ class ScheduleInstanceService:
                     f"({proactive.maximum_scheduling_horizon_minutes} minutes)"
                 )
         active = session.exec(
-            select(func.count(ScheduleInstanceRow.id)).where(
+            select(func.count()).where(
                 and_(
                     ScheduleInstanceRow.conversation_id == conversation_id,
                     ScheduleInstanceRow.enabled == True,  # noqa: E712
@@ -578,7 +587,7 @@ class ScheduleInstanceService:
             if mark_sent:
                 row.last_sent_at = now.replace(tzinfo=None)
 
-            if defn.one_shot:
+            if defn.one_shot and status in {"sent", "skipped"}:
                 row.enabled = False
                 row.next_run_at = None
             elif defn.type in {"after_delay", "after_inactivity"}:
