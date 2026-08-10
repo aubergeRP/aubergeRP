@@ -33,6 +33,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..services.observability_service import get_registry, record_error, register_secret
+
 if TYPE_CHECKING:
     from aiogram import Bot, Dispatcher
     from aiogram.types import Message
@@ -112,6 +114,8 @@ class TelegramRuntimeManager:
         if bot_id in self._tasks and not self._tasks[bot_id].done():
             return
         self._modes[bot_id] = update_mode
+        register_secret(token)
+        get_registry().mark_bot_started(bot_id, update_mode)
         if update_mode == "webhook":
             task = asyncio.create_task(
                 self._run_bot_webhook(bot_id, token, character_id, dialogue_only, webhook_url),
@@ -140,6 +144,7 @@ class TelegramRuntimeManager:
             with contextlib.suppress(Exception):
                 await bot.session.close()
         self._modes.pop(bot_id, None)
+        get_registry().mark_bot_stopped(bot_id)
 
     async def restart_bot(self, bot_id: str) -> None:
         from .telegram_bot_service import TelegramBotService
@@ -183,8 +188,10 @@ class TelegramRuntimeManager:
             from aiogram.types import Update
             update = Update.model_validate(update_data)
             await dp.feed_update(bot, update)
-        except Exception:
+        except Exception as exc:
             logger.exception("dispatch_update: failed to process update for bot %s", bot_id)
+            get_registry().mark_bot_error(bot_id, str(exc))
+            record_error("telegram_webhook", f"update dispatch failed: {exc}", bot_id=bot_id)
 
     # ── Internal: run one bot (polling) ──────────────────────────────────────
 
@@ -212,8 +219,10 @@ class TelegramRuntimeManager:
             await dp.start_polling(bot, handle_signals=False)
         except asyncio.CancelledError:
             logger.info("Telegram bot %s: polling stopped", bot_id)
-        except Exception:
+        except Exception as exc:
             logger.exception("Telegram bot %s: unexpected error, polling stopped", bot_id)
+            get_registry().mark_bot_error(bot_id, str(exc))
+            record_error("telegram_polling", f"polling stopped: {exc}", bot_id=bot_id)
         finally:
             self._dispatchers.pop(bot_id, None)
             b = self._bots.pop(bot_id, None)
@@ -252,6 +261,7 @@ class TelegramRuntimeManager:
             svc = TelegramBotService(self._data_dir)
             try:
                 webhook_secret = svc.get_bot_webhook_secret(bot_id)
+                register_secret(webhook_secret)
             except KeyError:
                 webhook_secret = ""
 
@@ -268,6 +278,8 @@ class TelegramRuntimeManager:
                 err = str(exc)
                 logger.warning("Telegram bot %s: set_webhook failed: %s", bot_id, err)
                 svc.record_webhook_error(bot_id, err)
+                get_registry().mark_bot_error(bot_id, err)
+                record_error("telegram_webhook", f"set_webhook failed: {err}", bot_id=bot_id)
 
             # Keep the task alive until cancelled — updates arrive via the HTTP
             # endpoint and are dispatched through dispatch_update().
@@ -280,8 +292,10 @@ class TelegramRuntimeManager:
         except asyncio.CancelledError:
             logger.info("Telegram bot %s: webhook sentinel cancelled", bot_id)
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Telegram bot %s: unexpected error in webhook sentinel", bot_id)
+            get_registry().mark_bot_error(bot_id, str(exc))
+            record_error("telegram_webhook", f"webhook sentinel stopped: {exc}", bot_id=bot_id)
         finally:
             self._dispatchers.pop(bot_id, None)
             b = self._bots.pop(bot_id, None)
@@ -406,6 +420,8 @@ class TelegramRuntimeManager:
             user_id = str(message.from_user.id) if message.from_user else "0"
             chat_id = str(message.chat.id)
 
+            get_registry().mark_update_received(bot_id)
+
             # Resolve text content (message text or photo caption).
             text = message.text or message.caption or ""
 
@@ -446,8 +462,10 @@ class TelegramRuntimeManager:
                         chat_id=chat_id,
                         dialogue_only=dialogue_only,
                     )
-                except Exception:
+                except Exception as exc:
                     logger.exception("Telegram bot %s: generation failed for conv %s", bot_id, conv_id)
+                    record_error("llm", f"telegram generation failed: {exc}",
+                                 bot_id=bot_id, conversation_id=conv_id)
                     await message.answer("⚠️ Generation failed. Please try again.")
                     return
 
@@ -464,11 +482,14 @@ class TelegramRuntimeManager:
                             from aiogram.types import BufferedInputFile
                             img_data = BufferedInputFile(img_fh.read(), filename=image_path.name)
                             await bot.send_photo(chat_id=chat_id_int, photo=img_data)
-                    except Exception:
+                    except Exception as exc:
                         logger.error(
                             "Telegram bot %s: failed to send image %s to conv %s",
                             bot_id, image_url, conv_id,
                         )
+                        get_registry().mark_delivery_failure(bot_id)
+                        record_error("telegram_delivery", f"image send failed: {exc}",
+                                     bot_id=bot_id, conversation_id=conv_id)
                 else:
                     logger.warning(
                         "Telegram bot %s: generated image not found on disk: %s",
@@ -480,12 +501,17 @@ class TelegramRuntimeManager:
             for chunk in chunks:
                 try:
                     await message.answer(chunk)
-                except Exception:
+                except Exception as exc:
                     logger.error(
                         "Telegram bot %s: delivery failed for conv %s (chunk len=%d)",
                         bot_id, conv_id, len(chunk),
                     )
+                    get_registry().mark_delivery_failure(bot_id)
+                    record_error("telegram_delivery", f"text send failed: {exc}",
+                                 bot_id=bot_id, conversation_id=conv_id)
                     break
+                else:
+                    get_registry().mark_message_sent(bot_id)
 
         # Ignore non-private chats silently (no handler registered for them)
 

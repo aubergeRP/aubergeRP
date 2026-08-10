@@ -700,6 +700,166 @@ Delete Media
 **Responses:** `204` Successful Response · `422` Validation Error
 
 
+## Observability
+
+### `GET /api/observability/overview`
+
+Get Overview
+
+Headline health numbers for every dashboard section.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `hours` | query | integer | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/telegram`
+
+Get Telegram
+
+Configuration + runtime state of every configured Telegram bot.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/telegram/{bot_id}/webhook`
+
+Get Telegram Webhook
+
+Live webhook information as reported by Telegram.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `bot_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/sessions`
+
+Get Sessions
+
+Recent/active sessions across every transport.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `transport` | query | string | no |  |
+| `bot_id` | query | string | no |  |
+| `character_id` | query | string | no |  |
+| `limit` | query | integer | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/llm`
+
+Get Llm
+
+LLM generation aggregates and the most recent calls.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `hours` | query | integer | no |  |
+| `generation_type` | query | string | no |  |
+| `conversation_id` | query | string | no |  |
+| `success` | query | boolean | null | no |  |
+| `limit` | query | integer | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/memory`
+
+Get Memory
+
+Estimated context pressure and summarization state per conversation.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `limit` | query | integer | no |  |
+| `conversation_id` | query | string | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/memory/{conversation_id}`
+
+Get Memory Detail
+
+Context detail for one conversation, including its stored summary.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/schedules`
+
+Get Schedules
+
+Proactive schedule instances with their recent execution history.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `status` | query | string | no |  |
+| `enabled` | query | boolean | null | no |  |
+| `character_id` | query | string | no |  |
+| `transport` | query | string | no |  |
+| `limit` | query | integer | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/observability/errors`
+
+Get Errors
+
+Recent operational errors, newest first, already redacted.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `component` | query | string | no |  |
+| `hours` | query | integer | no |  |
+| `limit` | query | integer | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+
 ## Prompts
 
 ### `GET /api/prompts/`

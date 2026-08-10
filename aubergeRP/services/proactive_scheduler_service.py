@@ -7,15 +7,18 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from ..db_models import ScheduleInstanceRow
 from ..services.delivery_service import make_delivery_adapter
+from ..services.observability_service import get_registry, record_error
 
 if TYPE_CHECKING:
     from ..models.character import CharacterCard, ScheduleDefinition
     from ..services.schedule_instance_service import ScheduleInstanceService
+    from ..services.statistics_service import StatisticsService
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,64 @@ class ProactiveScheduler:
         self._data_dir = Path(data_dir)
         self._poll_interval = poll_interval
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
+
+    def _statistics_service(self) -> StatisticsService | None:
+        """Return a statistics recorder, or None if it cannot be built."""
+        try:
+            from ..services.statistics_service import StatisticsService
+
+            return StatisticsService(data_dir=self._data_dir)
+        except Exception:  # pragma: no cover - statistics must never break sending
+            logger.debug("ProactiveScheduler: statistics unavailable", exc_info=True)
+            return None
+
+    @staticmethod
+    def _record_llm_call(
+        stats: StatisticsService | None,
+        conversation_id: str,
+        connector: Any,
+        messages: list[dict[str, Any]],
+        response_text: str,
+        started: float,
+        *,
+        success: bool,
+        error_detail: str = "",
+    ) -> None:
+        """Record a proactive generation in ``llm_call_stats``.
+
+        Proactive generations bypass ChatService, so without this they were
+        invisible in every usage figure.
+        """
+        if stats is None:
+            return
+        from ..services.summarization_service import _count_tokens, count_prompt_tokens
+
+        usage = getattr(connector, "last_usage", None)
+        if isinstance(usage, dict):
+            tokens_in = int(usage.get("prompt_tokens", 0))
+            tokens_out = int(usage.get("completion_tokens", 0))
+            estimated = False
+        else:
+            tokens_in = count_prompt_tokens(messages)
+            tokens_out = _count_tokens(response_text) if response_text else 0
+            estimated = True
+        try:
+            stats.record_text_call(
+                conversation_id=conversation_id,
+                connector_id="",
+                connector_name=type(connector).__name__,
+                connector_backend=str(getattr(connector, "backend_id", "")),
+                request_tokens=tokens_in,
+                response_tokens=tokens_out,
+                response_time_ms=int((perf_counter() - started) * 1000),
+                success=success,
+                error_detail=error_detail,
+                generation_type="proactive",
+                model=str(getattr(getattr(connector, "config", None), "model", "") or ""),
+                tokens_estimated=estimated,
+            )
+        except Exception:  # pragma: no cover
+            logger.debug("ProactiveScheduler: failed to record statistics", exc_info=True)
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -90,20 +151,46 @@ class ProactiveScheduler:
         if not svc.claim_for_generation(row.id, utc_now=utc_now):
             return
         now = utc_now or datetime.now(UTC)
+        started = perf_counter()
+        registry = get_registry()
+
+        def record(status: str, reason: str) -> None:
+            """Append this outcome to the in-memory execution history."""
+            registry.record_execution(
+                schedule_id=row.id,
+                status=status,
+                reason=reason,
+                character_id=row.character_id,
+                conversation_id=row.conversation_id,
+                channel=row.channel,
+                duration_ms=int((perf_counter() - started) * 1000),
+            )
+
+        def fail(reason: str) -> None:
+            svc.mark_failed(row.id, reason, utc_now=utc_now)
+            record("failed", reason)
+            record_error(
+                "proactive",
+                reason,
+                conversation_id=row.conversation_id,
+                schedule_id=row.id,
+            )
+
         try:
             char_svc = CharacterService(data_dir=self._data_dir)
             try:
                 char = char_svc.get_character(row.character_id)
             except (CharacterNotFoundError, KeyError):
-                svc.mark_failed(row.id, "character not found", utc_now=utc_now)
+                fail("character not found")
                 return
 
             defn = svc.get_definition_for_row(row) or _get_schedule_definition(char, row.schedule_def_id)
             if defn is None:
-                svc.mark_failed(row.id, "schedule definition not found", utc_now=utc_now)
+                fail("schedule definition not found")
                 return
             if not defn.enabled:
                 svc.complete_execution(row.id, defn, status="skipped", reason="disabled", utc_now=utc_now)
+                record("skipped", "disabled")
                 return
 
             if row.last_sent_at is not None and row.minimum_cooldown_minutes > 0:
@@ -116,6 +203,7 @@ class ProactiveScheduler:
                         reason="cooldown",
                         utc_now=now,
                     )
+                    record("skipped", "cooldown")
                     return
 
             zi = ZoneInfo(row.timezone)
@@ -133,13 +221,14 @@ class ProactiveScheduler:
                         reason=decision.reason or "contextual_skip",
                         utc_now=now,
                     )
+                    record("skipped", decision.reason or "contextual_skip")
                     return
                 message = decision.message.strip() or None
 
             if message is None:
                 message = await self._generate(conversation_id=row.conversation_id, proactive_injection=injection)
             if message is None:
-                svc.mark_failed(row.id, "generation_failed", utc_now=utc_now)
+                fail("generation_failed")
                 return
 
             self._persist_assistant_message(row.conversation_id, message)
@@ -162,12 +251,28 @@ class ProactiveScheduler:
                     reason="delivery_failed",
                     utc_now=now,
                 )
+                record("failed", "delivery_failed")
+                record_error(
+                    "proactive",
+                    "delivery failed",
+                    bot_id=row.channel_instance_id if row.channel == "telegram" else "",
+                    conversation_id=row.conversation_id,
+                    schedule_id=row.id,
+                )
                 return
 
             svc.complete_execution(row.id, defn, status="sent", utc_now=now, mark_sent=True)
-        except Exception:
+            record("sent", "")
+        except Exception as exc:
             logger.exception("ProactiveScheduler: unexpected error for instance %s", row.id)
             svc.mark_failed(row.id, "unexpected_error", utc_now=now)
+            record("failed", "unexpected_error")
+            record_error(
+                "proactive",
+                f"unexpected error: {exc}",
+                conversation_id=row.conversation_id,
+                schedule_id=row.id,
+            )
 
     def _persist_assistant_message(self, conversation_id: str, message: str) -> None:
         from ..services.character_service import CharacterService
@@ -206,16 +311,31 @@ class ProactiveScheduler:
             ooc_guardrail=False,
             proactive_injection=payload_prompt,
         )
+        stats = self._statistics_service()
         messages = await maybe_summarize(
             messages,
             text_connector,
             config.chat.context_window,
             config.chat.summarization_threshold,
+            conversation_id=conversation_id,
+            statistics_service=stats,
         )
+        started = perf_counter()
         chunks: list[str] = []
-        async for token in text_connector.stream_chat_completion(messages):
-            chunks.append(token)
+        try:
+            async for token in text_connector.stream_chat_completion(messages):
+                chunks.append(token)
+        except Exception as exc:
+            self._record_llm_call(
+                stats, conversation_id, text_connector, messages, "",
+                started, success=False, error_detail=str(exc),
+            )
+            record_error("proactive", str(exc), conversation_id=conversation_id)
+            raise
         raw = "".join(chunks).strip()
+        self._record_llm_call(
+            stats, conversation_id, text_connector, messages, raw, started, success=True,
+        )
         if not raw:
             return ProactiveDecision(action="skip", reason="empty_decision")
 
@@ -259,20 +379,33 @@ class ProactiveScheduler:
             ooc_guardrail=False,
             proactive_injection=proactive_injection,
         )
+        stats = self._statistics_service()
+        started = perf_counter()
         try:
             messages = await maybe_summarize(
                 messages,
                 text_connector,
                 config.chat.context_window,
                 config.chat.summarization_threshold,
+                conversation_id=conversation_id,
+                statistics_service=stats,
             )
+            started = perf_counter()
             chunks: list[str] = []
             async for token in text_connector.stream_chat_completion(messages):
                 chunks.append(token)
             text = "".join(chunks).strip()
+            self._record_llm_call(
+                stats, conversation_id, text_connector, messages, text, started, success=True,
+            )
             return text or None
-        except Exception:
+        except Exception as exc:
             logger.exception("ProactiveScheduler: generation failed for conversation %s", conversation_id)
+            self._record_llm_call(
+                stats, conversation_id, text_connector, messages, "",
+                started, success=False, error_detail=str(exc),
+            )
+            record_error("proactive", str(exc), conversation_id=conversation_id)
             return None
 
 

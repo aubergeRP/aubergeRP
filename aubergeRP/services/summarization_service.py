@@ -10,13 +10,19 @@ extra dependency (tiktoken etc.) is required.
 """
 from __future__ import annotations
 
+import logging
 from datetime import UTC
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..connectors.base import TextConnector
+    from ..services.statistics_service import StatisticsService
 
+from ..services.observability_service import record_error
 from ..services.prompt_service import get_prompt
+
+logger = logging.getLogger(__name__)
 
 # Each message carries a small fixed overhead beyond its content.
 _MSG_OVERHEAD_TOKENS = 4
@@ -60,11 +66,61 @@ def _build_summary_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]
     ]
 
 
+def _record_summarization_call(
+    statistics_service: StatisticsService | None,
+    *,
+    conversation_id: str,
+    connector: TextConnector,
+    prompt: list[dict[str, Any]],
+    summary_text: str,
+    started: float,
+    success: bool,
+    error_detail: str = "",
+) -> None:
+    """Record the summarization LLM call in ``llm_call_stats``.
+
+    Summarization used to be invisible in the statistics even though it is a
+    full LLM round-trip.  Recording it under its own ``generation_type`` keeps
+    the accounting honest without storing any prompt or summary text.
+    """
+    if statistics_service is None or not conversation_id:
+        return
+    usage = getattr(connector, "last_usage", None)
+    if isinstance(usage, dict):
+        tokens_in = int(usage.get("prompt_tokens", 0))
+        tokens_out = int(usage.get("completion_tokens", 0))
+        estimated = False
+    else:
+        tokens_in = count_prompt_tokens(prompt)
+        tokens_out = _count_tokens(summary_text) if summary_text else 0
+        estimated = True
+    try:
+        statistics_service.record_text_call(
+            conversation_id=conversation_id,
+            connector_id="",
+            connector_name=type(connector).__name__,
+            connector_backend=str(getattr(connector, "backend_id", "")),
+            request_tokens=tokens_in,
+            response_tokens=tokens_out,
+            response_time_ms=int((perf_counter() - started) * 1000),
+            success=success,
+            error_detail=error_detail,
+            generation_type="summarization",
+            model=str(getattr(getattr(connector, "config", None), "model", "") or ""),
+            tokens_estimated=estimated,
+        )
+    except Exception:  # pragma: no cover - statistics must never break chat
+        logger.debug("Failed to record summarization statistics", exc_info=True)
+
+
 async def maybe_summarize(
     messages: list[dict[str, Any]],
     connector: TextConnector,
     context_window: int,
     threshold: float,
+    *,
+    conversation_id: str = "",
+    statistics_service: StatisticsService | None = None,
 ) -> list[dict[str, Any]]:
     """Return *messages* (possibly with older turns replaced by a summary).
 
@@ -100,13 +156,36 @@ async def maybe_summarize(
 
     # Call the LLM to produce a summary (non-streaming, collected).
     summary_text = ""
+    summary_prompt = _build_summary_prompt(to_summarize)
+    started = perf_counter()
     try:
-        summary_prompt = _build_summary_prompt(to_summarize)
         async for chunk in connector.stream_chat_completion(summary_prompt):
             summary_text += chunk
-    except Exception:
+    except Exception as exc:
         # If the summarization call fails, fall back to the original messages.
+        logger.exception("Summarization failed for conversation %s", conversation_id or "(unknown)")
+        record_error("summarization", str(exc), conversation_id=conversation_id)
+        _record_summarization_call(
+            statistics_service,
+            conversation_id=conversation_id,
+            connector=connector,
+            prompt=summary_prompt,
+            summary_text="",
+            started=started,
+            success=False,
+            error_detail=str(exc),
+        )
         return messages
+
+    _record_summarization_call(
+        statistics_service,
+        conversation_id=conversation_id,
+        connector=connector,
+        prompt=summary_prompt,
+        summary_text=summary_text,
+        started=started,
+        success=True,
+    )
 
     summary_msg: dict[str, Any] = {
         "role": "system",

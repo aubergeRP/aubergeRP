@@ -42,6 +42,7 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         m007_add_schedules,  # noqa: PLC0415
         m008_add_webhook,  # noqa: PLC0415
         m009_proactive_engine,  # noqa: PLC0415
+        m010_observability,  # noqa: PLC0415
     )
     return {
         1: ("Initial schema and JSON import", m001_initial.migrate),
@@ -53,6 +54,7 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         7: ("Add schedule_instances table", m007_add_schedules.migrate),
         8: ("Add webhook columns to telegram_bots", m008_add_webhook.migrate),
         9: ("Add proactive schedule engine fields", m009_proactive_engine.migrate),
+        10: ("Add observability metadata to llm_call_stats", m010_observability.migrate),
     }
 
 

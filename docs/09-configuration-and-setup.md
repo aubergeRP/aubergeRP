@@ -28,6 +28,9 @@ chat:
   summarization_threshold: 0.75
   ooc_protection: true
 
+observability:
+  metrics_enabled: false   # expose Prometheus metrics at /metrics
+
 gui:
   custom_css: ""
   custom_header_html: ""
@@ -57,6 +60,7 @@ gui:
 | `AUBERGE_LLM_MAX_TOKENS` | Max tokens to generate per reply (default: `1024`) |
 | `AUBERGE_IMG_API_URL` | Auto-provision image connector on startup |
 | `AUBERGE_IMG_MODEL` | Image model name |
+| `AUBERGE_METRICS_ENABLED` | `observability.metrics_enabled` (`1`/`true`/`yes`/`on`) |
 | `AUBERGE_DISABLE_ADMIN_AUTH` | Set to `1` to bypass admin authentication — **dev/testing only, never use in production** |
 
 ## Admin password

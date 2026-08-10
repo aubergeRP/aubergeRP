@@ -33,6 +33,7 @@ The Docker setup ships with a bundled [LocalAI](https://localai.io/) instance �
 * **Smart Image Generation:** The AI triggers image generation automatically based on the story context (via ComfyUI or SD-WebUI).
 * **Lightweight Stack:** No complex build steps. Just Python (FastAPI) and Vanilla JS.
 * **Admin Dashboard:** Easily manage your connectors, characters, and check your usage stats.
+* **Operations Dashboard:** See at a glance whether bots, LLM calls, proactive schedules and summarization are healthy — plus an optional Prometheus `/metrics` endpoint.
 
 
 ## 🛠 Quick Start
@@ -88,6 +89,7 @@ The chat UI has **no user authentication**. Anyone who can reach the server port
 * 📖 [Installation Guide](docs/installation-guide.md) – Step-by-step setup (Docker, GPU, etc.).
 * 🧩 [Connector System](docs/06-connector-system.md) – How to add new AI backends.
 * ⚙️ [Configuration](docs/09-configuration-and-setup.md) – `config.yaml` reference.
+* 📊 [Observability & Operations](docs/08-observability.md) – Operations dashboard, diagnostics and Prometheus metrics.
 * 🏗 [Architecture](docs/00-architecture-overview.md) – High-level design for contributors.
 
 ## About me

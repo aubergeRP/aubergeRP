@@ -32,6 +32,7 @@
     <button class="nav-btn" data-section="medias">Medias</button>
     <button class="nav-btn" data-section="health">Health</button>
     <button class="nav-btn" data-section="statistics">Statistics</button>
+    <button class="nav-btn" data-section="observability">Operations</button>
     <button class="nav-btn" data-section="config">Configuration</button>
     <button class="nav-btn" data-section="customize">Customization</button>
     <button class="nav-btn" data-section="prompts">Prompts</button>
@@ -148,6 +149,120 @@
       <div class="stats-panel">
         <h3 class="health-subheading">By Conversation</h3>
         <div id="stats-conversations-table-wrap"></div>
+      </div>
+    </section>
+
+    <!-- ── Operations / Observability ── -->
+    <section id="section-observability" class="admin-section" style="display:none" aria-label="Operations">
+      <div class="section-header">
+        <h1>Operations</h1>
+        <div class="btn-group">
+          <select id="obs-range" aria-label="Observability time range">
+            <option value="1">Last hour</option>
+            <option value="24" selected>Last 24 h</option>
+            <option value="168">Last 7 days</option>
+            <option value="720">Last 30 days</option>
+          </select>
+          <label class="obs-autorefresh">
+            <input type="checkbox" id="obs-autorefresh" checked> Auto
+          </label>
+          <button class="btn btn-secondary" id="obs-refresh-btn">Refresh</button>
+        </div>
+      </div>
+
+      <div id="obs-feedback"></div>
+
+      <div id="obs-summary" class="stats-summary-grid" aria-live="polite"></div>
+
+      <div class="stats-panel">
+        <div class="obs-panel-head">
+          <h3 class="health-subheading">Telegram Bots</h3>
+        </div>
+        <div id="obs-telegram-wrap"></div>
+      </div>
+
+      <div class="stats-panel">
+        <div class="obs-panel-head">
+          <h3 class="health-subheading">Sessions</h3>
+          <div class="obs-filters">
+            <select id="obs-session-transport" aria-label="Filter sessions by transport">
+              <option value="">All transports</option>
+              <option value="web">Web</option>
+              <option value="telegram">Telegram</option>
+            </select>
+            <select id="obs-session-bot" aria-label="Filter sessions by bot">
+              <option value="">All bots</option>
+            </select>
+          </div>
+        </div>
+        <div id="obs-sessions-wrap"></div>
+      </div>
+
+      <div class="stats-panel">
+        <div class="obs-panel-head">
+          <h3 class="health-subheading">LLM Activity</h3>
+          <div class="obs-filters">
+            <select id="obs-llm-type" aria-label="Filter LLM calls by generation type">
+              <option value="">All types</option>
+              <option value="chat">Chat</option>
+              <option value="proactive">Proactive</option>
+              <option value="summarization">Summarization</option>
+            </select>
+            <select id="obs-llm-status" aria-label="Filter LLM calls by outcome">
+              <option value="">Success and failure</option>
+              <option value="true">Success only</option>
+              <option value="false">Failures only</option>
+            </select>
+          </div>
+        </div>
+        <div id="obs-llm-wrap"></div>
+      </div>
+
+      <div class="stats-panel">
+        <div class="obs-panel-head">
+          <h3 class="health-subheading">Memory &amp; Context</h3>
+        </div>
+        <div id="obs-memory-wrap"></div>
+      </div>
+
+      <div class="stats-panel">
+        <div class="obs-panel-head">
+          <h3 class="health-subheading">Proactive Schedules</h3>
+          <div class="obs-filters">
+            <select id="obs-schedule-status" aria-label="Filter schedules by last outcome">
+              <option value="">All outcomes</option>
+              <option value="sent">Sent</option>
+              <option value="skipped">Skipped</option>
+              <option value="failed">Failed</option>
+            </select>
+            <select id="obs-schedule-enabled" aria-label="Filter schedules by enabled state">
+              <option value="">Enabled and disabled</option>
+              <option value="true">Enabled only</option>
+              <option value="false">Disabled only</option>
+            </select>
+          </div>
+        </div>
+        <div id="obs-schedules-wrap"></div>
+      </div>
+
+      <div class="stats-panel">
+        <div class="obs-panel-head">
+          <h3 class="health-subheading">Recent Errors</h3>
+          <div class="obs-filters">
+            <select id="obs-error-component" aria-label="Filter errors by component">
+              <option value="">All components</option>
+              <option value="llm">LLM</option>
+              <option value="summarization">Summarization</option>
+              <option value="telegram_polling">Telegram polling</option>
+              <option value="telegram_webhook">Telegram webhook</option>
+              <option value="telegram_delivery">Telegram delivery</option>
+              <option value="proactive">Proactive</option>
+              <option value="scheduler">Scheduler</option>
+              <option value="background">Background</option>
+            </select>
+          </div>
+        </div>
+        <div id="obs-errors-wrap"></div>
       </div>
     </section>
 

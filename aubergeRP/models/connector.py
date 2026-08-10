@@ -24,6 +24,10 @@ class OpenAITextConfig(BaseModel):
     extra_body: dict[str, Any] = Field(default_factory=dict)
     timeout: int = 120
     supports_tool_calling: bool = True
+    # Ask the provider to report real token usage at the end of a stream
+    # (OpenAI's ``stream_options.include_usage``).  Disable it for providers
+    # that reject the field; token counts then fall back to a local estimate.
+    stream_usage: bool = True
 
     @field_validator("extra_body", mode="before")
     @classmethod

@@ -19,6 +19,10 @@ class OpenAITextConnector(TextConnector):
     def __init__(self, config: OpenAITextConfig) -> None:
         self.config = config
         self.supports_tool_calling = config.supports_tool_calling
+        # Token usage reported by the provider for the most recent stream, or
+        # None when the provider did not report any.  Consumed by the
+        # statistics layer so it can distinguish real counts from estimates.
+        self.last_usage: dict[str, int] | None = None
 
     def _headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -54,6 +58,9 @@ class OpenAITextConnector(TextConnector):
             "max_tokens": max_tokens if max_tokens is not None else self.config.max_tokens,
             "temperature": temperature if temperature is not None else self.config.temperature,
         }
+
+        if self.config.stream_usage:
+            payload["stream_options"] = {"include_usage": True}
 
         if top_p is not None:
             payload["top_p"] = top_p
@@ -110,6 +117,26 @@ class OpenAITextConnector(TextConnector):
         except Exception as exc:
             return {"connected": False, "details": {"error": str(exc)}}
 
+    def _capture_usage(self, chunk: dict[str, Any]) -> None:
+        """Record provider-reported token usage from a streaming chunk.
+
+        Providers that support ``stream_options.include_usage`` emit a final
+        chunk carrying a ``usage`` object (and usually no choices).  Providers
+        that do not simply never call this, leaving ``last_usage`` as None so
+        the caller falls back to its local estimate.
+        """
+        usage = chunk.get("usage")
+        if not isinstance(usage, dict):
+            return
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        if not isinstance(prompt_tokens, int) or not isinstance(completion_tokens, int):
+            return
+        self.last_usage = {
+            "prompt_tokens": max(0, prompt_tokens),
+            "completion_tokens": max(0, completion_tokens),
+        }
+
     async def stream_chat_completion(
         self,
         messages: list[dict[str, Any]],
@@ -144,6 +171,7 @@ class OpenAITextConnector(TextConnector):
         total_chars = 0
         total_ignored_chars = 0
         total_reasoning_chars = 0
+        self.last_usage = None
         async with httpx.AsyncClient(timeout=self.config.timeout) as client, client.stream(
             "POST",
             f"{self.config.base_url}/chat/completions",
@@ -163,6 +191,7 @@ class OpenAITextConnector(TextConnector):
 
                 try:
                     chunk = json.loads(payload_str)
+                    self._capture_usage(chunk)
                     delta = chunk["choices"][0]["delta"]
                     content = delta.get("content")
                     reasoning = delta.get("reasoning_content") or delta.get("reasoning")
@@ -237,6 +266,7 @@ class OpenAITextConnector(TextConnector):
         # Accumulate tool-call argument fragments keyed by call index.
         tool_calls: dict[int, dict[str, Any]] = {}
         total_chars = 0
+        self.last_usage = None
 
         async with httpx.AsyncClient(timeout=self.config.timeout) as client, client.stream(
             "POST",
@@ -253,6 +283,7 @@ class OpenAITextConnector(TextConnector):
                     break
                 try:
                     chunk = json.loads(payload_str)
+                    self._capture_usage(chunk)
                     delta = chunk["choices"][0]["delta"]
 
                     # Text content

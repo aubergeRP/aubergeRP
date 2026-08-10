@@ -59,6 +59,12 @@ scheduler:
   # Delete images older than this many days.
   cleanup_older_than_days: 30
 
+# Operational observability (Admin → Operations is always available)
+observability:
+  # Expose Prometheus metrics at /metrics. Unauthenticated — keep it on a
+  # private network. Disabled by default.
+  metrics_enabled: false
+
 # GUI customization (also editable in Admin → Customization)
 gui:
   # Arbitrary CSS injected into every page.

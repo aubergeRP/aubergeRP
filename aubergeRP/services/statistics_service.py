@@ -41,6 +41,9 @@ class StatisticsService:
         response_time_ms: int,
         success: bool,
         error_detail: str = "",
+        generation_type: str = "chat",
+        model: str = "",
+        tokens_estimated: bool = True,
     ) -> None:
         total = max(0, request_tokens) + max(0, response_tokens)
         row = LLMCallStatRow(
@@ -55,6 +58,9 @@ class StatisticsService:
             response_time_ms=max(0, response_time_ms),
             success=success,
             error_detail=error_detail,
+            generation_type=generation_type,
+            model=model,
+            tokens_estimated=tokens_estimated,
             created_at=datetime.now(UTC),
         )
         with self._get_session() as session:

@@ -17,6 +17,8 @@ import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from .observability_service import get_registry, record_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,6 +100,11 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
                 "TelegramDeliveryAdapter: bot %s not found; skipping delivery",
                 channel_instance_id,
             )
+            record_error(
+                "telegram_delivery",
+                "bot not found; proactive delivery skipped",
+                bot_id=channel_instance_id,
+            )
             return
 
         bot = Bot(token=token)
@@ -108,6 +115,11 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
                 "TelegramDeliveryAdapter: invalid chat_id %r; skipping delivery",
                 external_chat_id,
             )
+            record_error(
+                "telegram_delivery",
+                "invalid chat id; proactive delivery skipped",
+                bot_id=channel_instance_id,
+            )
             return
 
         # Split long messages the same way the runtime manager does.
@@ -117,11 +129,18 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
             for chunk in split_message(message_text):
                 await bot.send_message(chat_id=chat_id_int, text=chunk)
         except Exception:
+            # Re-raised so the caller can record the execution as failed —
+            # swallowing it here made every failed delivery look like a
+            # successful send.
             logger.exception(
                 "TelegramDeliveryAdapter: failed to send to chat_id=%s via bot=%s",
                 external_chat_id,
                 channel_instance_id,
             )
+            get_registry().mark_delivery_failure(channel_instance_id)
+            raise
+        else:
+            get_registry().mark_message_sent(channel_instance_id)
         finally:
             await bot.session.close()
 

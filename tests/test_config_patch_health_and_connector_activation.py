@@ -63,15 +63,22 @@ def config_client(tmp_path):
     # Ensure tests do not depend on repo-local config.yaml values.
     reset_config()
     from aubergeRP import config as config_module
+    config_file = tmp_path / "config.yaml"
+    # get_config() reloads from _config_path whenever its mtime differs from the
+    # last-seen one, so the seeded singleton must be paired with a tmp path —
+    # otherwise the repo-local config.yaml gets loaded on the first request.
+    original_path = config_module._config_path
+    config_module._config_path = config_file
     seeded = Config()
     seeded.app.data_dir = str(tmp_path)
     config_module._config = seeded
+    config_module._config_mtime = 0.0
 
     app = create_app()
-    config_file = tmp_path / "config.yaml"
     app.dependency_overrides[get_config_save_path] = lambda: config_file
     with TestClient(app) as c:
         yield c
+    config_module._config_path = original_path
     reset_config()
 
 

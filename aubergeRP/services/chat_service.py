@@ -16,6 +16,7 @@ from ..models.conversation import Conversation
 from ..services.character_service import CharacterService
 from ..services.conversation_service import ConversationService, resolve_macros
 from ..services.media_service import MediaService
+from ..services.observability_service import record_error
 from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
 from ..services.summarization_service import count_prompt_tokens, maybe_summarize
@@ -308,6 +309,11 @@ def _estimate_text_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _connector_model(text_connector: Any) -> str:
+    """Return the model name configured on *text_connector*, if any."""
+    return str(getattr(getattr(text_connector, "config", None), "model", "") or "")
+
+
 def build_prompt(
     conversation: Conversation,
     char: CharacterCard,
@@ -400,6 +406,7 @@ class ChatService:
         channel_instance_id: str = "web",
         external_user_id: str = "",
         external_chat_id: str = "",
+        generation_type: str = "chat",
     ) -> None:
         self._conversation_service = conversation_service
         self._character_service = character_service
@@ -416,6 +423,7 @@ class ChatService:
         self._channel_instance_id = channel_instance_id
         self._external_user_id = external_user_id
         self._external_chat_id = external_chat_id
+        self._generation_type = generation_type
 
     def _resolve_text_connector_metadata(self, text_connector: Any) -> tuple[str, str, str]:
         connector_id = ""
@@ -614,6 +622,8 @@ class ChatService:
             text_connector,
             effective_ctx,
             self._summarization_threshold,
+            conversation_id=conversation_id,
+            statistics_service=self._statistics_service,
         )
 
         full_text = ""
@@ -740,6 +750,7 @@ class ChatService:
 
         except Exception as exc:
             call_error = str(exc)
+            record_error("llm", call_error, conversation_id=conversation_id)
             if not assistant_persisted:
                 self._rollback_user_message(conversation_id, appended_user_message_id)
             logger.exception(
@@ -755,16 +766,30 @@ class ChatService:
         finally:
             if self._statistics_service is not None:
                 with suppress(Exception):
+                    # Prefer the provider's own usage report; fall back to the
+                    # local ~4-chars-per-token heuristic when it is absent.
+                    usage = getattr(text_connector, "last_usage", None)
+                    if isinstance(usage, dict):
+                        tokens_in = int(usage.get("prompt_tokens", 0))
+                        tokens_out = int(usage.get("completion_tokens", 0))
+                        estimated = False
+                    else:
+                        tokens_in = request_tokens
+                        tokens_out = _estimate_text_tokens(full_text)
+                        estimated = True
                     self._statistics_service.record_text_call(
                         conversation_id=conversation_id,
                         connector_id=connector_id,
                         connector_name=connector_name,
                         connector_backend=connector_backend,
-                        request_tokens=request_tokens,
-                        response_tokens=_estimate_text_tokens(full_text),
+                        request_tokens=tokens_in,
+                        response_tokens=tokens_out,
                         response_time_ms=int((perf_counter() - call_started) * 1000),
                         success=call_success,
                         error_detail=call_error,
+                        generation_type=self._generation_type,
+                        model=_connector_model(text_connector),
+                        tokens_estimated=estimated,
                     )
 
     async def _stream_with_tools(

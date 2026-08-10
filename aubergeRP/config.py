@@ -139,6 +139,14 @@ class ChatConfig(BaseModel):
     ooc_protection: bool = True
 
 
+class ObservabilityConfig(BaseModel):
+    """Operational observability settings."""
+
+    # Expose Prometheus metrics on /metrics.  Disabled by default because the
+    # endpoint is unauthenticated and meant to sit behind a private network.
+    metrics_enabled: bool = False
+
+
 class GuiConfig(BaseModel):
     """GUI customization settings."""
 
@@ -163,6 +171,7 @@ class Config(BaseModel):
     user: UserConfig = UserConfig()
     scheduler: SchedulerConfig = SchedulerConfig()
     chat: ChatConfig = ChatConfig()
+    observability: ObservabilityConfig = ObservabilityConfig()
     gui: GuiConfig = GuiConfig()
 
     @field_validator("app", mode="before")
@@ -190,6 +199,11 @@ class Config(BaseModel):
     def validate_chat(cls, v: object) -> object:
         return v or {}
 
+    @field_validator("observability", mode="before")
+    @classmethod
+    def validate_observability(cls, v: object) -> object:
+        return v or {}
+
     @field_validator("gui", mode="before")
     @classmethod
     def validate_gui(cls, v: object) -> object:
@@ -208,6 +222,7 @@ def _apply_env_overrides(config: Config) -> Config:
         AUBERGE_ADMIN_PASSWORD_HASH → config.app.admin_password_hash
         AUBERGE_ADMIN_JWT_SECRET   → config.app.admin_jwt_secret
         AUBERGE_ADMIN_TOKEN_TTL_SECONDS → config.app.admin_token_ttl_seconds
+        AUBERGE_METRICS_ENABLED    → config.observability.metrics_enabled
     """
     if val := os.environ.get("AUBERGE_DATA_DIR"):
         config.app.data_dir = val
@@ -227,6 +242,8 @@ def _apply_env_overrides(config: Config) -> Config:
         config.app.admin_jwt_secret = val
     if val := os.environ.get("AUBERGE_ADMIN_TOKEN_TTL_SECONDS"):
         config.app.admin_token_ttl_seconds = int(val)
+    if val := os.environ.get("AUBERGE_METRICS_ENABLED"):
+        config.observability.metrics_enabled = val.strip().lower() in {"1", "true", "yes", "on"}
     return config
 
 def load_config(path: str | Path = "config.yaml") -> Config:

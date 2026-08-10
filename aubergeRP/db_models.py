@@ -98,6 +98,13 @@ class LLMCallStatRow(SQLModel, table=True):
     response_time_ms: int = 0
     success: bool = True
     error_detail: str = ""
+    # chat | proactive | summarization | image_prompt
+    generation_type: str = Field(default="chat", index=True)
+    # Model name reported by the connector configuration, when known.
+    model: str = ""
+    # False when the counts above come from the provider's usage payload,
+    # True when they are the local ~4-characters-per-token heuristic.
+    tokens_estimated: bool = True
     created_at: datetime
 
 

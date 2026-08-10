@@ -6,6 +6,7 @@ import { initConfig }     from '/js/admin/config.js?v=2';
 import { initStatistics } from '/js/admin/statistics.js?v=2';
 import { initPrompts }    from '/js/admin/prompts.js?v=2';
 import { initTelegram }   from '/js/admin/telegram.js?v=1';
+import { initObservability } from '/js/admin/observability.js?v=1';
 import { applyGuiCustomization } from '/js/gui-customization.js?v=2';
 import { initStatusBar, setStatusItem, initHeaderLogo } from '/js/layout.js?v=2';
 
@@ -18,7 +19,7 @@ async function main() {
   applyGuiCustomization();
 
   // ── Section routing (hash-based) ────────────────────────────────────────
-  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'config', 'customize', 'prompts', 'telegram'];
+  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'observability', 'config', 'customize', 'prompts', 'telegram'];
   const sectionEls = {};
   const navBtns = {};
 
@@ -34,12 +35,15 @@ async function main() {
       navBtns[s].classList.toggle('active', s === name);
       navBtns[s].setAttribute('aria-current', s === name ? 'page' : 'false');
     });
+    // Only the visible Operations section keeps polling.
+    obsCtrl.setVisible(name === 'observability');
     window.location.hash = name;
     if (name === 'connectors') connectorCtrl.refresh();
     else if (name === 'characters') charCtrl.refresh();
     else if (name === 'medias') mediaCtrl.refresh();
     else if (name === 'health') loadHealth();
     else if (name === 'statistics') statsCtrl.refresh();
+    else if (name === 'observability') obsCtrl.refresh();
     else if (name === 'config') configCtrl.refresh();
     else if (name === 'customize') loadCustomize();
     else if (name === 'prompts') promptsCtrl.refresh();
@@ -175,6 +179,7 @@ async function main() {
   const configCtrl     = initConfig({ showToast });
   const promptsCtrl    = initPrompts({ showToast });
   const telegramCtrl   = initTelegram({ showToast, showConfirm });
+  const obsCtrl        = initObservability({ showToast });
 
   const _customizeEditors = [
     { inputId: 'customize-css', highlightId: 'customize-css-highlight', language: 'css' },

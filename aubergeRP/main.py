@@ -27,6 +27,8 @@ from .routers import conversations as conversations_router
 from .routers import health as health_router
 from .routers import images as images_router
 from .routers import media as media_router
+from .routers import metrics as metrics_router
+from .routers import observability as observability_router
 from .routers import prompts as prompts_router
 from .routers import schedules as schedules_router
 from .routers import statistics as statistics_router
@@ -415,6 +417,9 @@ def create_app() -> FastAPI:
     app.include_router(telegram_router.router, prefix="/api")
     app.include_router(timezone_router.router, prefix="/api")
     app.include_router(schedules_router.router, prefix="/api")
+    app.include_router(observability_router.router, prefix="/api")
+    # Prometheus convention: /metrics lives at the root, not under /api.
+    app.include_router(metrics_router.router)
 
     # ── API reference (Redoc) ───────────────────────────────────────────────
     @app.get("/api-docs", include_in_schema=False, response_class=HTMLResponse)
