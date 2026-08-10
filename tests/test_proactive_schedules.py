@@ -512,8 +512,8 @@ class TestProactiveScheduler:
         assert refreshed.last_run_at is not None
 
     @pytest.mark.asyncio
-    async def test_restart_does_not_duplicate(self, data_dir: Path) -> None:
-        """If generation_started_at is set from a previous run, release and re-try on next tick."""
+    async def test_restart_recovers_stale_lock(self, data_dir: Path) -> None:
+        """Startup recovery releases an abandoned lock so the schedule can run."""
         from sqlmodel import Session
 
         from aubergeRP.database import get_engine
@@ -540,8 +540,10 @@ class TestProactiveScheduler:
                 s.add(row)
                 s.commit()
 
-        # Tick should not find this row (it's locked) and not generate
         scheduler = ProactiveScheduler(data_dir)
+        scheduler._recover_startup_locks()
+
+        # Tick should now find this row and generate exactly once.
         generate_called = False
 
         async def fake_generate(**kwargs: Any) -> str:
@@ -556,7 +558,9 @@ class TestProactiveScheduler:
         ):
             await scheduler._tick()
 
-        assert generate_called is False
+        assert generate_called is True
+        refreshed = svc.get_instance(inst.id)
+        assert refreshed.last_run_at is not None
 
     @pytest.mark.asyncio
     async def test_disabled_card_schedule_does_not_run(self, data_dir: Path) -> None:
@@ -881,5 +885,4 @@ class TestSchedulesRouter:
                                       json={"enabled": False})
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
-
 

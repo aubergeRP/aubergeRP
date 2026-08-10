@@ -22,6 +22,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
+from sqlalchemy import DateTime, bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, and_, select
 
@@ -307,21 +308,35 @@ class ScheduleInstanceService:
         because SQLite serialises writes; the affected-rows check additionally
         guards against a race if multiple processes share the same DB.
         """
-        from sqlalchemy import text
         from sqlalchemy.engine import CursorResult
 
         now = (utc_now or datetime.now(UTC)).replace(tzinfo=None)
         with self._get_session() as session:
+            stmt = text(
+                "UPDATE schedule_instances"
+                " SET generation_started_at = :now, updated_at = :now"
+                " WHERE id = :id AND generation_started_at IS NULL"
+            ).bindparams(bindparam("now", type_=DateTime()), bindparam("id"))
             result: CursorResult[Any] = session.execute(  # type: ignore[assignment]
-                text(
-                    "UPDATE schedule_instances"
-                    " SET generation_started_at = :now, updated_at = :now"
-                    " WHERE id = :id AND generation_started_at IS NULL"
-                ),
-                {"now": now.isoformat(), "id": instance_id},
+                stmt,
+                {"now": now, "id": instance_id},
             )
             session.commit()
             return result.rowcount == 1
+
+    def release_startup_generation_locks(self, utc_now: datetime | None = None) -> int:
+        """Clear generation locks left behind by a previous server process."""
+        now = (utc_now or datetime.now(UTC)).replace(tzinfo=None)
+        with self._get_session() as session:
+            rows = session.exec(
+                select(ScheduleInstanceRow).where(text("generation_started_at IS NOT NULL"))
+            ).all()
+            for row in rows:
+                row.generation_started_at = None
+                row.updated_at = now
+                session.add(row)
+            session.commit()
+            return len(rows)
 
     def complete_generation(
         self,

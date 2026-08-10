@@ -47,10 +47,24 @@ def get_timezone(
     return TimezoneResponse(timezone=tz)
 
 
-@router.put("/", response_model=TimezoneResponse)
+@router.put(
+    "/",
+    response_model=TimezoneResponse,
+    responses={401: {"description": "Missing session token"}},
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "x-session-token",
+                "in": "header",
+                "required": True,
+                "schema": {"type": "string"},
+            }
+        ]
+    },
+)
 def set_timezone(
     body: TimezoneUpdate,
-    x_session_token: str = Header(default=""),
+    x_session_token: str = Header(default="", include_in_schema=False),
 ) -> TimezoneResponse:
     """Validate and persist an IANA timezone for this web session."""
     if not x_session_token:

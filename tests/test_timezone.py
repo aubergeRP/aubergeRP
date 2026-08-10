@@ -206,6 +206,14 @@ def test_web_put_timezone_no_token_rejected(client: TestClient):
     assert resp.status_code == 401
 
 
+def test_web_put_timezone_openapi_marks_header_required(client: TestClient):
+    schema = client.get("/openapi.json").json()
+    operation = schema["paths"]["/api/timezone/"]["put"]
+    params = {param["name"]: param for param in operation["parameters"]}
+    assert params["x-session-token"]["required"] is True
+    assert "401" in operation["responses"]
+
+
 def test_web_set_timezone(client: TestClient):
     resp = client.put(
         "/api/timezone/",

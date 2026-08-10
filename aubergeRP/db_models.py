@@ -191,8 +191,8 @@ class ScheduleInstanceRow(SQLModel, table=True):
     # whenever the timezone or schedule definition changes.
     next_run_at: datetime | None = None
     # Idempotency lock: set to "now" when generation begins, cleared on success.
-    # If the server restarts while non-None, generation did not complete and the
-    # row is eligible for a fresh attempt.
+    # Startup recovery clears any leftover non-None value from a previous server
+    # process so the interrupted run can be retried.
     generation_started_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

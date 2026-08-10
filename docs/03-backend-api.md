@@ -1057,6 +1057,6 @@ Validate and persist an IANA timezone for this web session.
 
 | Name | In | Type | Required | Description |
 |---|---|---|---|---|
-| `x-session-token` | header | string | no |  |
+| `x-session-token` | header | string | yes |  |
 
-**Responses:** `200` Successful Response · `422` Validation Error
+**Responses:** `200` Successful Response · `401` Missing session token · `422` Validation Error

@@ -16,10 +16,10 @@ For each row whose ``next_run_at`` is in the past and whose
 
 On failure the lock is released so the next tick can retry.
 
-On server restart the lock is cleared for any row with a non-NULL
-``generation_started_at`` that was not completed — this happens naturally
-because the scheduler simply reclaims the row on the next tick (the restart
-logic is: claim → fail → release → next tick claims again).
+On server startup the scheduler explicitly clears any leftover
+``generation_started_at`` locks before the first tick. This allows an
+interrupted generation to be retried after a crash/restart instead of staying
+stuck forever.
 
 Telegram and Web share the same scheduler; delivery is handled by the
 :mod:`delivery_service` transport adapters.
@@ -82,6 +82,7 @@ class ProactiveScheduler:
         # Fire once immediately so overdue schedules are processed on startup
         # without waiting for the first poll interval.
         try:
+            self._recover_startup_locks()
             await self._tick()
         except Exception:
             logger.exception("ProactiveScheduler: unhandled error during initial tick")
@@ -105,6 +106,18 @@ class ProactiveScheduler:
 
         for row in due_rows:
             await self._process_instance(row, svc, now)
+
+    def _recover_startup_locks(self, utc_now: datetime | None = None) -> None:
+        """Release abandoned generation locks from a previous server process."""
+        from ..services.schedule_instance_service import ScheduleInstanceService
+
+        svc = ScheduleInstanceService(self._data_dir)
+        released = svc.release_startup_generation_locks(utc_now=utc_now)
+        if released:
+            logger.warning(
+                "ProactiveScheduler: released %d abandoned generation lock(s) on startup",
+                released,
+            )
 
     async def _process_instance(
         self,
