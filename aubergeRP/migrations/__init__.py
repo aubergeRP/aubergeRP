@@ -40,6 +40,8 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         m005_add_dialogue_only,  # noqa: PLC0415
         m006_add_timezone,  # noqa: PLC0415
         m007_add_schedules,  # noqa: PLC0415
+        m008_add_webhook,  # noqa: PLC0415
+        m008_add_webhook,  # noqa: PLC0415
     )
     return {
         1: ("Initial schema and JSON import", m001_initial.migrate),
@@ -49,6 +51,7 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         5: ("Add dialogue_only column to telegram_bots", m005_add_dialogue_only.migrate),
         6: ("Add user_timezones table", m006_add_timezone.migrate),
         7: ("Add schedule_instances table", m007_add_schedules.migrate),
+        8: ("Add webhook columns to telegram_bots", m008_add_webhook.migrate),
     }
 
 

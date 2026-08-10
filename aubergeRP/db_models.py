@@ -119,6 +119,11 @@ class TelegramBotRow(SQLModel, table=True):
     telegram_username: str = ""
     last_tested_at: datetime | None = None
     last_error: str = ""
+    # Update mode: "polling" or "webhook"
+    update_mode: str = "polling"
+    webhook_url: str = ""
+    webhook_secret: str = ""
+    webhook_last_error: str = ""
     created_at: datetime
     updated_at: datetime
 
