@@ -438,16 +438,19 @@ def test_chat_service_uses_maybe_summarize_module():
 
 
 def test_telegram_chat_service_uses_same_class():
-    """TelegramRuntimeManager creates ChatService from the same module as the web router."""
+    """TelegramRuntimeManager._generate imports ChatService from chat_service module."""
     import inspect
 
     import aubergeRP.services.telegram_runtime_manager as trm_mod
+    from aubergeRP.services.chat_service import ChatService  # noqa: F401 — used for identity check
 
-    # The module uses a local import of ChatService — verify it references the same module.
-    source = inspect.getsource(trm_mod)
-    assert "from ..services.chat_service import ChatService" in source or \
-           "from .chat_service import ChatService" in source, (
-        "TelegramRuntimeManager must import ChatService from chat_service"
+    method_source = inspect.getsource(trm_mod.TelegramRuntimeManager._generate)
+    # The method must reference ChatService from the shared chat_service module
+    assert "chat_service" in method_source, (
+        "_generate must import from chat_service"
+    )
+    assert "ChatService" in method_source, (
+        "_generate must create a ChatService instance"
     )
 
 
