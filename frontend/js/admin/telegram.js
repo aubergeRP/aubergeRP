@@ -68,7 +68,7 @@ function _renderBot(bot) {
   div.dataset.id = bot.id;
 
   const usernameHtml = bot.telegram_username
-    ? `<span class="conn-meta">@${bot.telegram_username}</span>`
+    ? `<span class="conn-meta">@${_esc(bot.telegram_username)}</span>`
     : '';
 
   const lastErr = bot.last_error

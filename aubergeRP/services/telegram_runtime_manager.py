@@ -48,7 +48,7 @@ def split_message(text: str, max_len: int = _TG_MAX_LEN) -> list[str]:
             # Hard split.
             idx = max_len
         parts.append(remaining[:idx])
-        remaining = remaining[idx:].lstrip("\n")
+        remaining = remaining[idx:]
     if remaining:
         parts.append(remaining)
     return parts
@@ -150,7 +150,7 @@ class TelegramRuntimeManager:
                 return
             user_id = str(message.from_user.id) if message.from_user else "0"
             chat_id = str(message.chat.id)
-            conv_id, created = await asyncio.get_event_loop().run_in_executor(
+            conv_id, created = await asyncio.get_running_loop().run_in_executor(
                 None, self._get_or_create_session, bot_id, user_id, chat_id, character_id
             )
             if created:
@@ -164,7 +164,7 @@ class TelegramRuntimeManager:
                 return
             user_id = str(message.from_user.id) if message.from_user else "0"
             chat_id = str(message.chat.id)
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None, self._reset_session, bot_id, user_id, chat_id, character_id
             )
             await message.answer("🔄 Conversation reset. Starting fresh!")
@@ -204,7 +204,7 @@ class TelegramRuntimeManager:
             user_id = str(message.from_user.id) if message.from_user else "0"
             chat_id = str(message.chat.id)
 
-            conv_id, _ = await asyncio.get_event_loop().run_in_executor(
+            conv_id, _ = await asyncio.get_running_loop().run_in_executor(
                 None, self._get_or_create_session, bot_id, user_id, chat_id, character_id
             )
 
@@ -287,7 +287,7 @@ class TelegramRuntimeManager:
         from ..services.statistics_service import StatisticsService
 
         config = get_config()
-        data_dir = config.app.data_dir
+        data_dir = self._data_dir
         char_svc = CharacterService(data_dir=data_dir)
         conv_svc = ConversationService(data_dir=data_dir, character_service=char_svc)
         stats_svc = StatisticsService(data_dir=data_dir)

@@ -1,6 +1,7 @@
 """ChannelSessionService — transport-neutral external-user → AubergeRP conversation mapping."""
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,7 +77,9 @@ class ChannelSessionService:
             return conv.id, True
         except IntegrityError:
             # A concurrent request already inserted a row for this user+bot.
-            # Return the winner's conversation instead.
+            # Delete the orphaned conversation we just created and return the winner.
+            with contextlib.suppress(Exception):
+                conv_svc.delete_conversation(conv.id)
             with self._get_session() as session:
                 row = session.exec(
                     select(ChannelSessionRow).where(
@@ -89,6 +92,7 @@ class ChannelSessionService:
                 ).first()
                 if row is not None:
                     return row.conversation_id, False
+            # Fallback: return our own conversation id (very unlikely).
             return conv.id, True
 
     def reset(
@@ -105,32 +109,50 @@ class ChannelSessionService:
         conv: Conversation = conv_svc.create_conversation(character_id=character_id)
 
         now = datetime.now(UTC)
-        with self._get_session() as session:
-            row = session.exec(
-                select(ChannelSessionRow).where(
-                    and_(
-                        ChannelSessionRow.channel == channel,
-                        ChannelSessionRow.channel_instance_id == channel_instance_id,
-                        ChannelSessionRow.external_user_id == external_user_id,
+        try:
+            with self._get_session() as session:
+                row = session.exec(
+                    select(ChannelSessionRow).where(
+                        and_(
+                            ChannelSessionRow.channel == channel,
+                            ChannelSessionRow.channel_instance_id == channel_instance_id,
+                            ChannelSessionRow.external_user_id == external_user_id,
+                        )
                     )
-                )
-            ).first()
-            if row is not None:
-                row.conversation_id = conv.id
-                row.updated_at = now
-                session.add(row)
-            else:
-                session.add(ChannelSessionRow(
-                    id=str(uuid.uuid4()),
-                    channel=channel,
-                    channel_instance_id=channel_instance_id,
-                    external_user_id=external_user_id,
-                    external_chat_id=external_chat_id,
-                    conversation_id=conv.id,
-                    created_at=now,
-                    updated_at=now,
-                ))
-            session.commit()
+                ).first()
+                if row is not None:
+                    row.conversation_id = conv.id
+                    row.updated_at = now
+                    session.add(row)
+                else:
+                    session.add(ChannelSessionRow(
+                        id=str(uuid.uuid4()),
+                        channel=channel,
+                        channel_instance_id=channel_instance_id,
+                        external_user_id=external_user_id,
+                        external_chat_id=external_chat_id,
+                        conversation_id=conv.id,
+                        created_at=now,
+                        updated_at=now,
+                    ))
+                session.commit()
+        except IntegrityError:
+            # Another request inserted the mapping concurrently; re-fetch and update it.
+            with self._get_session() as session:
+                row = session.exec(
+                    select(ChannelSessionRow).where(
+                        and_(
+                            ChannelSessionRow.channel == channel,
+                            ChannelSessionRow.channel_instance_id == channel_instance_id,
+                            ChannelSessionRow.external_user_id == external_user_id,
+                        )
+                    )
+                ).first()
+                if row is not None:
+                    row.conversation_id = conv.id
+                    row.updated_at = now
+                    session.add(row)
+                    session.commit()
 
         return conv.id
 

@@ -90,19 +90,15 @@ def delete_character(
     admin_token: str = Depends(get_admin_token),
 ) -> None:
     # Prevent silent deletion when a Telegram bot still references this character.
-    try:
-        from ..config import get_config
-        from ..services.telegram_bot_service import TelegramBotService
-    except ImportError:
-        pass
-    else:
-        tg_svc = TelegramBotService(data_dir=get_config().app.data_dir)
-        if tg_svc.character_is_referenced(character_id):
-            raise HTTPException(
-                status_code=409,
-                detail="Character is referenced by one or more Telegram bots. "
-                       "Reassign or delete those bots first.",
-            )
+    from ..config import get_config
+    from ..services.telegram_bot_service import TelegramBotService
+    tg_svc = TelegramBotService(data_dir=get_config().app.data_dir)
+    if tg_svc.character_is_referenced(character_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Character is referenced by one or more Telegram bots. "
+                   "Reassign or delete those bots first.",
+        )
     try:
         service.delete_character(character_id)
     except CharacterNotFoundError:
