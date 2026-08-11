@@ -313,13 +313,21 @@ class _FakeTextConnector:
 
 
 def _patch_connector(monkeypatch, connector):
+    """Patch the connector manager; returns the list of roles it was asked for."""
     import aubergeRP.routers.connectors as connectors_router
 
+    roles: list[str] = []
+
     class _Manager:
-        def get_active_text_connector(self):
+        def get_text_connector(self, role="text"):
+            roles.append(role)
             return connector
 
+        def get_active_text_connector(self):
+            return self.get_text_connector()
+
     monkeypatch.setattr(connectors_router, "get_connector_manager", lambda: _Manager())
+    return roles
 
 
 def test_translate_character_creates_copy(client, monkeypatch):
@@ -328,10 +336,12 @@ def test_translate_character_creates_copy(client, monkeypatch):
     conn = _FakeTextConnector(
         '{"description": "Une rôdeuse elfe.", "first_mes": "Bonjour !"}'
     )
-    _patch_connector(monkeypatch, conn)
+    roles = _patch_connector(monkeypatch, conn)
 
     resp = client.post(f"/api/characters/{card['id']}/translate", json={"language": "French"})
     assert resp.status_code == 201
+    # Translation is a utility task, not roleplay generation.
+    assert roles == ["text_utility"]
     translated = resp.json()
     assert translated["id"] != card["id"]
     assert translated["data"]["name"] == "Elara (French)"

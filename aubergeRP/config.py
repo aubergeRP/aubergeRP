@@ -113,6 +113,9 @@ class AppConfig(BaseModel):
 class ActiveConnectorsConfig(BaseModel):
     text: str = ""
     image: str = ""
+    # Optional per-task text connectors. Empty means "same as `text`".
+    text_summarization: str = ""
+    text_utility: str = ""
 
 
 class UserConfig(BaseModel):

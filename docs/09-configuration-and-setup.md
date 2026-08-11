@@ -14,6 +14,8 @@ app:
 active_connectors:
   text: ""               # set by Admin UI
   image: ""
+  text_summarization: "" # optional, empty = same connector as `text`
+  text_utility: ""       # optional, empty = same connector as `text`
 
 user:
   name: "User"           # {{user}} macro replacement

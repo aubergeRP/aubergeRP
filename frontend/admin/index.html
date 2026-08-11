@@ -314,6 +314,28 @@
         </select>
       </div>
 
+      <details class="advanced-config-details">
+        <summary>Advanced settings — one model per task (optional)</summary>
+        <div class="advanced-config-body">
+          <p class="field-hint">
+            Leave these on “Same as main model” unless you want a cheaper or faster
+            model for background tasks.
+          </p>
+          <div class="field-row">
+            <label for="cfg-active-text-summarization" title="Text connector used to summarize long conversations.">Conversation summarization</label>
+            <select id="cfg-active-text-summarization">
+              <option value="">Same as main model</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="cfg-active-text-utility" title="Text connector used for proactive send/skip decisions, image prompt building and character card translation.">Utility tasks</label>
+            <select id="cfg-active-text-utility">
+              <option value="">Same as main model</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
       <div class="field-divider">Media Cleanup</div>
       <div class="field-row">
         <label for="cfg-cleanup-days" title="Delete generated images older than this number of days.">Delete images older than (days)</label>

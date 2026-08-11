@@ -19,6 +19,8 @@ from fastapi.testclient import TestClient
 from aubergeRP.config import Config, reset_config
 from aubergeRP.connectors.manager import ConnectorManager  # noqa: F401
 from aubergeRP.main import create_app
+from aubergeRP.models.connector import ConnectorCreate
+from aubergeRP.routers import config as config_router
 from aubergeRP.routers.config import get_config_save_path
 from aubergeRP.routers.connectors import _TestResultsStore, get_connector_manager
 
@@ -120,6 +122,46 @@ def test_patch_active_connectors_text_only(config_client):
     data = resp.json()
     assert data["active_connectors"]["text"] == "txt-uuid"
     assert data["active_connectors"]["image"] == "img-uuid"  # preserved
+
+
+def test_patch_per_task_text_connectors(config_client, tmp_path, monkeypatch):
+    """Multi-model: per-task overrides accept a text connector and persist."""
+    manager = make_manager(tmp_path)
+    monkeypatch.setattr(config_router, "get_connector_manager", lambda: manager)
+    text_id = manager.create_connector(ConnectorCreate(**TEXT_PAYLOAD)).id
+
+    resp = config_client.patch(
+        "/api/config/",
+        json={"active_connectors": {"text_summarization": text_id}},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["active_connectors"]["text_summarization"] == text_id
+    # Unset roles stay empty → "same as main model".
+    assert data["active_connectors"]["text_utility"] == ""
+
+
+def test_patch_per_task_connector_rejects_unknown_id(config_client, tmp_path, monkeypatch):
+    manager = make_manager(tmp_path)
+    monkeypatch.setattr(config_router, "get_connector_manager", lambda: manager)
+
+    resp = config_client.patch(
+        "/api/config/",
+        json={"active_connectors": {"text_utility": "nope"}},
+    )
+    assert resp.status_code == 400
+
+
+def test_patch_per_task_connector_rejects_image_connector(config_client, tmp_path, monkeypatch):
+    manager = make_manager(tmp_path)
+    monkeypatch.setattr(config_router, "get_connector_manager", lambda: manager)
+    image_id = manager.create_connector(ConnectorCreate(**IMAGE_PAYLOAD)).id
+
+    resp = config_client.patch(
+        "/api/config/",
+        json={"active_connectors": {"text_utility": image_id}},
+    )
+    assert resp.status_code == 400
 
 
 def test_patch_empty_body_is_no_op(config_client):

@@ -35,6 +35,10 @@ app:
 active_connectors:
   text: ""
   image: ""
+  # Optional per-task text models (Admin → Configuration → Advanced settings).
+  # Leave empty to use the same model as `text`.
+  text_summarization: ""   # conversation summarization
+  text_utility: ""         # proactive decision, image prompt, card translation
   # video: ""   # post-MVP
   # audio: ""   # post-MVP
 

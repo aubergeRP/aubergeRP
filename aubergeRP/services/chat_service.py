@@ -488,6 +488,21 @@ class ChatService:
         except Exception:
             return active_id, None
 
+    def _role_connector(self, role: str, fallback: Any) -> Any:
+        """Return the text connector for *role*, degrading to *fallback*.
+
+        The manager is duck-typed because tests substitute stubs for it.
+        """
+        get_for_role = getattr(self._connector_manager, "get_text_connector", None)
+        if not callable(get_for_role):
+            return fallback
+        try:
+            conn = get_for_role(role)
+        except Exception:
+            logger.warning("Failed to resolve '%s' connector", role, exc_info=True)
+            return fallback
+        return conn if conn is not None else fallback
+
     def _resolve_text_connector_metadata(self, text_connector: Any) -> tuple[str, str, str]:
         connector_id, instance = self._resolve_active_connector("text")
         connector_name = type(text_connector).__name__
@@ -646,7 +661,7 @@ class ChatService:
         effective_ctx = conn_ctx if isinstance(conn_ctx, int) and conn_ctx > 0 else self._context_window
         messages = await maybe_summarize(
             messages,
-            text_connector,
+            self._role_connector("text_summarization", text_connector),
             effective_ctx,
             self._summarization_threshold,
             conversation_id=conversation_id,
@@ -992,8 +1007,11 @@ class ChatService:
         try:
             logger.debug("[Image Gen] Starting image generation for gen_id=%s", gen_id)
             if text_connector is not None and messages is not None:
+                # Building the image prompt is a utility task: it may run on a
+                # different (cheaper) model than the roleplay reply.
                 prompt = await self._generate_image_prompt(
-                    text_connector, char, messages, prompt
+                    self._role_connector("text_utility", text_connector),
+                    char, messages, prompt,
                 )
             if not prompt:
                 # Fallback when no text connector or prompt generation failed

@@ -84,3 +84,19 @@ class BaseConnector(ABC):
 ## Active connector
 
 `config.yaml:active_connectors.{type}` stores the UUID of the active connector per type. The Admin UI writes this when you click "Activate". One active connector per type at a time.
+
+### Per-task text models
+
+Text generation is split into three roles, resolved by
+`ConnectorManager.get_text_connector(role)`:
+
+| Role | Used for | Config key |
+|---|---|---|
+| `text` | roleplay replies, proactive in-character messages | `active_connectors.text` |
+| `text_summarization` | conversation summarization | `active_connectors.text_summarization` |
+| `text_utility` | proactive send/skip decision, image prompt building, character card translation | `active_connectors.text_utility` |
+
+The last two are optional overrides: when empty they transparently fall back to
+`text`, so a single connector keeps working exactly as before. They are set from
+Admin → Configuration → "Advanced settings — one model per task", which lets you
+run background tasks on a cheaper or faster model.

@@ -183,14 +183,14 @@ async def translate_character_endpoint(
     service: CharacterService = Depends(get_character_service),
     admin_token: str = Depends(get_admin_token),
 ) -> CharacterCard:
-    """Create a translated copy of a character using the active text connector."""
+    """Create a translated copy of a character using the utility text connector."""
     from ..services.character_translation_service import (
         CharacterTranslationError,
         translate_character,
     )
     from .connectors import get_connector_manager
 
-    text_connector = get_connector_manager().get_active_text_connector()
+    text_connector = get_connector_manager().get_text_connector("text_utility")
     if text_connector is None:
         raise HTTPException(status_code=400, detail="No active text connector configured")
     try:

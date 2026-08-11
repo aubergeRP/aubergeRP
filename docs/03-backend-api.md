@@ -208,7 +208,7 @@ Export Png
 
 Translate Character Endpoint
 
-Create a translated copy of a character using the active text connector.
+Create a translated copy of a character using the utility text connector.
 
 
 **Request body:**

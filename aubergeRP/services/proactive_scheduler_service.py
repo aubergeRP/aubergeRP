@@ -297,9 +297,11 @@ class ProactiveScheduler:
         conv = conv_svc.get_conversation(conversation_id)
         char = char_svc.get_character(conv.character_id)
         manager = ConnectorManager(data_dir=self._data_dir, config=config)
-        text_connector = manager.get_active_text_connector()
+        # The send/skip decision is a classification task, not roleplay.
+        text_connector = manager.get_text_connector("text_utility")
         if text_connector is None:
             return ProactiveDecision(action="skip", reason="no_active_text_connector")
+        summarization_connector = manager.get_text_connector("text_summarization")
 
         decision_instruction = get_prompt("proactive_decision")
         payload_prompt = f"{injection}\n\n{decision_instruction}"
@@ -314,7 +316,7 @@ class ProactiveScheduler:
         stats = self._statistics_service()
         messages = await maybe_summarize(
             messages,
-            text_connector,
+            summarization_connector or text_connector,
             config.chat.context_window,
             config.chat.summarization_threshold,
             conversation_id=conversation_id,
@@ -384,7 +386,7 @@ class ProactiveScheduler:
         try:
             messages = await maybe_summarize(
                 messages,
-                text_connector,
+                connector_manager.get_text_connector("text_summarization") or text_connector,
                 config.chat.context_window,
                 config.chat.summarization_threshold,
                 conversation_id=conversation_id,

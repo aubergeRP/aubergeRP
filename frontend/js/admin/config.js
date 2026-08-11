@@ -66,11 +66,17 @@ function renderForm(cfg, connectors) {
 
   populateConnectorSelect('cfg-active-text',  connectors, 'text',  cfg.active_connectors.text);
   populateConnectorSelect('cfg-active-image', connectors, 'image', cfg.active_connectors.image);
+
+  // Advanced: optional per-task text models — empty means "same as main model".
+  populateConnectorSelect('cfg-active-text-summarization', connectors, 'text',
+    cfg.active_connectors.text_summarization || '', 'Same as main model');
+  populateConnectorSelect('cfg-active-text-utility', connectors, 'text',
+    cfg.active_connectors.text_utility || '', 'Same as main model');
 }
 
-function populateConnectorSelect(selectId, connectors, type, activeId) {
+function populateConnectorSelect(selectId, connectors, type, activeId, emptyLabel = '(none)') {
   const sel = document.getElementById(selectId);
-  sel.innerHTML = '<option value="">(none)</option>';
+  sel.innerHTML = `<option value="">${escHtml(emptyLabel)}</option>`;
   connectors
     .filter(c => c.type === type)
     .forEach(c => {
@@ -102,6 +108,8 @@ async function handleSave() {
     active_connectors: {
       text:  document.getElementById('cfg-active-text').value,
       image: document.getElementById('cfg-active-image').value,
+      text_summarization: document.getElementById('cfg-active-text-summarization').value,
+      text_utility:       document.getElementById('cfg-active-text-utility').value,
     },
   };
 

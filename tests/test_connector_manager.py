@@ -319,6 +319,61 @@ def test_get_active_image_connector_none_if_id_stale(tmp_path):
     assert mgr.get_active_image_connector() is None
 
 
+# ---------------------------------------------------------------------------
+# Per-task text roles (multi-model support)
+# ---------------------------------------------------------------------------
+
+
+def test_text_role_falls_back_to_main_connector(tmp_path):
+    mgr = make_manager(tmp_path)
+    main = mgr.create_connector(text_create())
+    mgr.set_active(main.id)
+
+    for role in ("text_summarization", "text_utility"):
+        assert mgr.get_active_id_for_type(role) == main.id
+        conn = mgr.get_text_connector(role)
+        assert isinstance(conn, OpenAITextConnector)
+        assert conn.config.model == "llama3"
+
+
+def test_text_role_uses_override_when_set(tmp_path):
+    mgr = make_manager(tmp_path)
+    main = mgr.create_connector(text_create())
+    small = mgr.create_connector(text_create(
+        name="Small local",
+        config={"base_url": "http://localhost:11434/v1", "model": "qwen-mini", "api_key": ""},
+    ))
+    mgr.set_active(main.id)
+    mgr._config.active_connectors.text_summarization = small.id
+
+    assert mgr.get_text_connector("text_summarization").config.model == "qwen-mini"
+    # Other roles are unaffected.
+    assert mgr.get_text_connector("text_utility").config.model == "llama3"
+    assert mgr.get_active_text_connector().config.model == "llama3"
+
+
+def test_unknown_text_role_raises(tmp_path):
+    mgr = make_manager(tmp_path)
+    with pytest.raises(ValueError):
+        mgr.get_text_connector("text_nope")
+
+
+def test_delete_connector_clears_role_overrides(tmp_path):
+    mgr = make_manager(tmp_path)
+    main = mgr.create_connector(text_create())
+    small = mgr.create_connector(text_create(name="Small local"))
+    mgr.set_active(main.id)
+    mgr._config.active_connectors.text_summarization = small.id
+    mgr._config.active_connectors.text_utility = small.id
+
+    mgr.delete_connector(small.id)
+
+    assert mgr._config.active_connectors.text_summarization == ""
+    assert mgr._config.active_connectors.text_utility == ""
+    # The main connector still answers for every role.
+    assert mgr.get_text_connector("text_utility").config.model == "llama3"
+
+
 def test_get_active_text_connector_with_empty_string_extra_body(tmp_path):
     # Regression: connector JSON stored extra_body="" (empty string from admin form)
     # instead of {}; _build_connector must not fail with a ValidationError.

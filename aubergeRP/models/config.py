@@ -14,6 +14,9 @@ class AppConfigResponse(BaseModel):
 class ActiveConnectorsResponse(BaseModel):
     text: str = ""
     image: str = ""
+    #: Optional per-task text connectors — empty means "same as `text`".
+    text_summarization: str = ""
+    text_utility: str = ""
 
 
 class UserConfigResponse(BaseModel):
@@ -44,6 +47,8 @@ class ActiveConnectorsPatch(BaseModel):
     """Per-field optional patch for active connectors."""
     text: str | None = None
     image: str | None = None
+    text_summarization: str | None = None
+    text_utility: str | None = None
 
 
 class UserConfigPatch(BaseModel):

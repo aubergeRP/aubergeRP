@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 _ConnectorT = TypeVar("_ConnectorT", bound=BaseConnector)
 
+#: Text connector roles. ``text`` is the main model; the others are optional
+#: per-task overrides that fall back to ``text`` when left empty.
+TEXT_ROLES = ("text", "text_summarization", "text_utility")
+
 
 class ConnectorManager:
     def __init__(
@@ -127,10 +131,20 @@ class ConnectorManager:
             return None
         return conn
 
-    def get_active_text_connector(self) -> TextConnector | None:
+    def get_text_connector(self, role: str = "text") -> TextConnector | None:
+        """Return the text connector for *role*, falling back to the main one.
+
+        Roles are listed in :data:`TEXT_ROLES`; an unset override transparently
+        resolves to the main ``text`` connector.
+        """
+        if role not in TEXT_ROLES:
+            raise ValueError(f"Unknown text connector role '{role}'")
         # type-abstract: the ABC is used purely as an isinstance/type-narrowing
         # tag here, never instantiated.
-        return self._get_active_connector("text", TextConnector)  # type: ignore[type-abstract]
+        return self._get_active_connector(role, TextConnector)  # type: ignore[type-abstract]
+
+    def get_active_text_connector(self) -> TextConnector | None:
+        return self.get_text_connector("text")
 
     def get_active_image_connector(self) -> ImageConnector | None:
         return self._get_active_connector("image", ImageConnector)  # type: ignore[type-abstract]
@@ -191,12 +205,10 @@ class ConnectorManager:
             path.unlink()
         del self._connectors[connector_id]
         changed = False
-        if self._config.active_connectors.text == connector_id:
-            self._config.active_connectors.text = ""
-            changed = True
-        if self._config.active_connectors.image == connector_id:
-            self._config.active_connectors.image = ""
-            changed = True
+        for field in (*TEXT_ROLES, "image"):
+            if getattr(self._config.active_connectors, field) == connector_id:
+                setattr(self._config.active_connectors, field, "")
+                changed = True
         if changed:
             self._save_config()
 
@@ -205,11 +217,16 @@ class ConnectorManager:
     # ------------------------------------------------------------------
 
     def get_active_id_for_type(self, connector_type: str) -> str:
-        """Return the active connector ID for a type, or '' if none is set."""
-        if connector_type == "text":
-            return self._config.active_connectors.text or ""
+        """Return the active connector ID for a type/role, or '' if none is set.
+
+        Per-task text roles fall back to the main ``text`` connector when their
+        own override is empty.
+        """
+        active = self._config.active_connectors
         if connector_type == "image":
-            return self._config.active_connectors.image or ""
+            return active.image or ""
+        if connector_type in TEXT_ROLES:
+            return getattr(active, connector_type, "") or active.text or ""
         return ""
 
     def set_active(self, connector_id: str) -> None:

@@ -146,6 +146,8 @@ class _FakeImage:
 def _manager(text_conn=None, image_conn=None, text_nsfw: bool = False) -> MagicMock:
     m = MagicMock()
     m.get_active_text_connector.return_value = text_conn
+    # Every per-task role resolves to the same connector by default.
+    m.get_text_connector.side_effect = lambda role="text": text_conn
     m.get_active_image_connector.return_value = image_conn
 
     def _active_id_for_type(connector_type: str) -> str:

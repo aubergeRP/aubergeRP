@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..config import _strip_js, get_config
 from ..models.config import (
@@ -18,6 +18,7 @@ from ..models.config import (
     UserConfigResponse,
 )
 from .admin import get_admin_token
+from .connectors import get_connector_manager
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -38,8 +39,32 @@ def _to_response() -> ConfigResponse:
         active_connectors=ActiveConnectorsResponse(
             text=config.active_connectors.text,
             image=config.active_connectors.image,
+            text_summarization=config.active_connectors.text_summarization,
+            text_utility=config.active_connectors.text_utility,
         ),
     )
+
+
+def _validate_text_override(connector_id: str) -> str:
+    """Ensure a per-task override points at an existing *text* connector.
+
+    An empty string is always valid: it means "same as the main text model".
+    The connector manager is resolved lazily so that requests which do not set
+    an override never instantiate it.
+    """
+    if not connector_id:
+        return ""
+    try:
+        instance = get_connector_manager().get_connector(connector_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown connector '{connector_id}'"
+        ) from None
+    if instance.type != "text":
+        raise HTTPException(
+            status_code=400, detail=f"Connector '{connector_id}' is not a text connector"
+        )
+    return connector_id
 
 
 def _save_config(save_path: Path) -> None:
@@ -74,6 +99,12 @@ def update_config(
     if update.active_connectors is not None:
         config.active_connectors.text = update.active_connectors.text
         config.active_connectors.image = update.active_connectors.image
+        config.active_connectors.text_summarization = _validate_text_override(
+            update.active_connectors.text_summarization
+        )
+        config.active_connectors.text_utility = _validate_text_override(
+            update.active_connectors.text_utility
+        )
 
     _save_config(save_path)
     return _to_response()
@@ -104,6 +135,14 @@ def patch_config(
             config.active_connectors.text = patch.active_connectors.text
         if patch.active_connectors.image is not None:
             config.active_connectors.image = patch.active_connectors.image
+        if patch.active_connectors.text_summarization is not None:
+            config.active_connectors.text_summarization = _validate_text_override(
+                patch.active_connectors.text_summarization
+            )
+        if patch.active_connectors.text_utility is not None:
+            config.active_connectors.text_utility = _validate_text_override(
+                patch.active_connectors.text_utility
+            )
 
     _save_config(save_path)
     return _to_response()

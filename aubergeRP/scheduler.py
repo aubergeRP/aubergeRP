@@ -53,10 +53,18 @@ async def check_connectors_health(config: Config) -> dict[str, bool]:
 
     manager = get_connector_manager()
     results: dict[str, bool] = {}
-    ids = [config.active_connectors.text, config.active_connectors.image]
+    ids = [
+        config.active_connectors.text,
+        config.active_connectors.image,
+        # Per-task overrides, when they point at a different connector.
+        config.active_connectors.text_summarization,
+        config.active_connectors.text_utility,
+    ]
+    seen: set[str] = set()
     for connector_id in ids:
-        if not connector_id:
+        if not connector_id or connector_id in seen:
             continue
+        seen.add(connector_id)
         try:
             result = await manager.test_connector(connector_id)
             connected = bool(result.get("connected", False))

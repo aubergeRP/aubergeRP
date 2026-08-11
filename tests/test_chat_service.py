@@ -135,10 +135,12 @@ class _FailImage:
         return {}
 
 
-def _manager(text_conn=None, image_conn=None) -> MagicMock:
+def _manager(text_conn=None, image_conn=None, role_conns=None) -> MagicMock:
     m = MagicMock()
     m.get_active_text_connector.return_value = text_conn
     m.get_active_image_connector.return_value = image_conn
+    roles = role_conns or {}
+    m.get_text_connector.side_effect = lambda role="text": roles.get(role, text_conn)
     return m
 
 
@@ -148,12 +150,13 @@ def make_chat_service(
     image_conn=None,
     context_window: int = 4096,
     summarization_threshold: float = 0.75,
+    role_conns=None,
 ) -> tuple:
     char_svc, conv_svc = make_services(tmp_path)
     svc = ChatService(
         conversation_service=conv_svc,
         character_service=char_svc,
-        connector_manager=_manager(text_conn, image_conn),
+        connector_manager=_manager(text_conn, image_conn, role_conns),
         images_dir=tmp_path / "images",
         context_window=context_window,
         summarization_threshold=summarization_threshold,
@@ -663,6 +666,35 @@ async def test_generate_reply_uses_summarization_pipeline(tmp_path):
         m["role"] == "system"
         and str(m["content"]).startswith("[Summary of earlier conversation]")
         for m in generation_call
+    )
+
+
+async def test_summarization_uses_its_own_connector(tmp_path):
+    """Multi-model: the summary runs on the `text_summarization` connector."""
+    chat = _RecordingText(["final reply"])
+    summarizer = _RecordingText(["summary text"])
+    char_svc, conv_svc, svc = make_chat_service(
+        tmp_path,
+        text_conn=chat,
+        context_window=300,
+        summarization_threshold=0.5,
+        role_conns={"text_summarization": summarizer},
+    )
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+    for idx in range(8):
+        role = "user" if idx % 2 == 0 else "assistant"
+        conv_svc.append_message(conv.id, role, f"{role}-{idx} " + ("a" * 320))
+
+    await svc.generate_reply(conv.id, "latest")
+
+    assert len(summarizer.calls) == 1
+    assert summarizer.calls[0][0]["role"] == "system"
+    assert len(chat.calls) == 1
+    assert any(
+        m["role"] == "system"
+        and str(m["content"]).startswith("[Summary of earlier conversation]")
+        for m in chat.calls[0]
     )
 
 

@@ -25,8 +25,6 @@ On frontend, all images generated with an NSFW connector must be blurried by def
 
 - [ ] **Multi-character conversations** — more than one character per conversation.
 
-- [ ] **Multi-model support** — separate connectors for chat, summarization, and classification.
-
 - [ ] **Proactive image triggering** — LLM decides on its own when to emit an image (not only on explicit user request). Maybe work on the system prompt to let the LLM know it can do this ?
 - [ ] **Quota management** — per-conversation token limit, when connecting external APIs with quotas (like OpenAI). 
 
