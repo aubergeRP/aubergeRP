@@ -55,6 +55,7 @@ PROCESS_STARTED_AT = datetime.now(UTC)
 
 ERROR_COMPONENTS = (
     "llm",
+    "image",
     "summarization",
     "telegram_polling",
     "telegram_webhook",

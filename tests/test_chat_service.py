@@ -13,6 +13,7 @@ from aubergeRP.models.character import CharacterCard, CharacterData
 from aubergeRP.models.conversation import Conversation
 from aubergeRP.services.character_service import CharacterService
 from aubergeRP.services.chat_service import (
+    IMAGE_FAILURE_MESSAGE,
     ChatGenerationError,
     ChatService,
     ImageMarkerParser,
@@ -21,6 +22,7 @@ from aubergeRP.services.chat_service import (
 )
 from aubergeRP.services.conversation_service import ConversationService
 from aubergeRP.services.media_service import MediaService
+from aubergeRP.services.observability_service import get_registry
 from aubergeRP.services.statistics_service import StatisticsService
 
 # ---------------------------------------------------------------------------
@@ -740,13 +742,20 @@ async def test_stream_image_connector_failure(tmp_path):
     )
     char = char_svc.create_character(CharacterData(name="X", description="Y"))
     conv = conv_svc.create_conversation(char.id)
+    get_registry().reset()
     events = await collect(svc.stream_chat(conv.id, "Hi"))
     failed = next(e for e in events if e["type"] == "image_failed")
-    assert "image gen failed" in failed["detail"]
+    # The cause goes to the admin error tail, not to the end user.
+    assert failed["detail"] == IMAGE_FAILURE_MESSAGE
+    assert "image gen failed" not in failed["detail"]
+    errors = get_registry().list_errors(component="image")
+    assert len(errors) == 1
+    assert "image gen failed" in errors[0].summary
+    assert errors[0].conversation_id == conv.id
 
 
 async def test_stream_image_failure_detail_no_mdn_url(tmp_path):
-    """image_failed.detail must not contain MDN URLs from httpx error formatting."""
+    """The recorded error keeps the HTTP status without httpx's MDN URL."""
 
     class _HttpErrorImage:
         connector_type = "image"
@@ -768,10 +777,13 @@ async def test_stream_image_failure_detail_no_mdn_url(tmp_path):
     )
     char = char_svc.create_character(CharacterData(name="X", description="Y"))
     conv = conv_svc.create_conversation(char.id)
+    get_registry().reset()
     events = await collect(svc.stream_chat(conv.id, "Hi"))
     failed = next(e for e in events if e["type"] == "image_failed")
-    assert "developer.mozilla.org" not in failed["detail"]
-    assert "HTTP 400" in failed["detail"]
+    assert failed["detail"] == IMAGE_FAILURE_MESSAGE
+    recorded = get_registry().list_errors(component="image")[0].summary
+    assert "developer.mozilla.org" not in recorded
+    assert "HTTP 400" in recorded
 
 
 async def test_stream_image_failure_logs_prompt(tmp_path, caplog):
@@ -812,10 +824,12 @@ async def test_retry_generate_image_failure(tmp_path):
     )
     char = char_svc.create_character(CharacterData(name="X", description="Y"))
     conv = conv_svc.create_conversation(char.id)
+    get_registry().reset()
     events = await collect(svc.retry_generate_image(conv.id, "a sunset", "gen-retry-2"))
     failed = next(e for e in events if e["type"] == "image_failed")
     assert failed["generation_id"] == "gen-retry-2"
-    assert "image gen failed" in failed["detail"]
+    assert failed["detail"] == IMAGE_FAILURE_MESSAGE
+    assert "image gen failed" in get_registry().list_errors(component="image")[0].summary
 
 
 async def test_stream_image_saves_to_disk(tmp_path):

@@ -560,6 +560,17 @@ class TestErrors:
         assert len(rows) == 1
         assert rows[0]["bot_id"] == "b1"
 
+    def test_image_component_is_filterable(self, client, env):
+        get_registry().record_error("llm", "llm down")
+        get_registry().record_error(
+            "image", "[OpenRouter] HTTP 402: out of credits", conversation_id="c9"
+        )
+
+        rows = client.get("/api/observability/errors?component=image").json()
+        assert len(rows) == 1
+        assert rows[0]["conversation_id"] == "c9"
+        assert "402" in rows[0]["summary"]
+
     def test_related_ids_are_kept(self, client, env):
         get_registry().record_error(
             "proactive", "generation failed",
