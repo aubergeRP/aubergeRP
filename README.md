@@ -1,6 +1,8 @@
 # 🏰 AubergeRP
 
 [![CI](https://github.com/aubergeRP/aubergeRP/actions/workflows/ci.yml/badge.svg)](https://github.com/aubergeRP/aubergeRP/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FaubergeRP%2FaubergeRP%2Fbadges%2Fbadges%2Ftests.json)](https://github.com/aubergeRP/aubergeRP/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FaubergeRP%2FaubergeRP%2Fbadges%2Fbadges%2Fcoverage.json)](https://github.com/aubergeRP/aubergeRP/actions/workflows/ci.yml)
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 
 **The cozy, distraction-free roleplay engine.** *Stop configuring, start roleplaying.*

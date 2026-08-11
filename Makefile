@@ -25,7 +25,7 @@ BLUE   := \033[1;34m
 RED    := \033[1;31m
 RESET  := \033[0m
 
-.PHONY: run test test-e2e lint lint-fix doc help \
+.PHONY: run test test-cov test-e2e lint lint-fix doc help \
         docker stop clean logs \
 	_compose-up _localai-install \
 	$(AVAILABLE_PROFILES)
@@ -37,6 +37,7 @@ help:
 	@printf "    make run              Start dev server (hot-reload, port 8123)\n"
 	@printf "    make test                        Run Python test suite\n"
 	@printf "    make test tests/test_api.py      Run one file\n"
+	@printf "    make test-cov         Run full suite with coverage + JUnit reports\n"
 	@printf "    make test-e2e         Run browser e2e tests (requires node + playwright)\n"
 	@printf "    make lint             Run ruff + mypy\n"
 	@printf "    make lint-fix         Fix linting issues automatically (ruff --fix)\n"
@@ -68,6 +69,12 @@ run:
 _TEST_ARGS := $(filter-out test, $(MAKECMDGOALS))
 test:
 	python -m pytest $(or $(_TEST_ARGS),tests/)
+
+# Full suite with coverage + machine-readable reports (used by CI)
+test-cov:
+	python -m pytest tests/ \
+		--junitxml=reports/junit.xml \
+		--cov=aubergeRP --cov-report=xml:reports/coverage.xml --cov-report=term-missing
 
 test-e2e:
 	cd tests/e2e && node --test chat-streaming.test.mjs generate-image-button.test.mjs mobile-scroll.test.mjs markdown-rendering.test.mjs

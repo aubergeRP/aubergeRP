@@ -65,6 +65,8 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -77,5 +79,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Run tests
-        run: make test
+      - name: Run tests with coverage
+        run: make test-cov
+
+      - name: Build report summary and badge data
+        if: always()
+        run: python scripts/ci_report.py >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-reports
+          path: reports/
+
+      # Badges are served from the orphan `badges` branch via shields.io's
+      # endpoint API — no external service, no token beyond GITHUB_TOKEN.
+      - name: Publish badges
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp badges/tests.json badges/coverage.json "$RUNNER_TEMP/"
+          git checkout --orphan badges-tmp
+          git rm -rf --cached . >/dev/null
+          rm -rf badges && mkdir badges
+          cp "$RUNNER_TEMP/tests.json" "$RUNNER_TEMP/coverage.json" badges/
+          git add -f badges/tests.json badges/coverage.json
+          git commit -m "ci: update badges for ${GITHUB_SHA::7}"
+          git push -f origin badges-tmp:badges
