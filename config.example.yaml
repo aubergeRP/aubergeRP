@@ -58,6 +58,10 @@ scheduler:
   interval_seconds: 86400
   # Delete images older than this many days.
   cleanup_older_than_days: 30
+  # Periodically test the active connectors so /api/health reports live state.
+  health_check_enabled: true
+  # How often to test the active connectors (seconds). Default: 5 minutes.
+  health_check_interval_seconds: 300
 
 # Operational observability (Admin → Operations is always available)
 observability:

@@ -127,6 +127,11 @@ class SchedulerConfig(BaseModel):
     interval_seconds: int = 86400
     # Delete images older than this many days. Default: 30.
     cleanup_older_than_days: int = 30
+    # Periodically test active connectors in the background so /api/health
+    # reflects a real liveness signal without user-triggered tests.
+    health_check_enabled: bool = True
+    # How often to test the active connectors (in seconds). Default: 5 min.
+    health_check_interval_seconds: int = 300
 
 class ChatConfig(BaseModel):
     """Global settings that influence AI quality behaviour."""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,43 +22,86 @@ router = APIRouter(prefix="/connectors", tags=["connectors"])
 
 
 class _TestResultsStore:
-    """Persistent key→bool|None store backed by a JSON sidecar file."""
+    """Persistent connector-liveness store backed by a JSON sidecar file.
+
+    Each entry is ``{"connected": bool, "checked_at": <iso8601>}``.  The file
+    is kept mirrored in memory and only re-read from disk when its path or
+    modification time changed, so hot readers (``/api/health``) do not pay for
+    disk I/O on every call.
+    """
 
     def __init__(self) -> None:
-        self._data: dict[str, bool] = {}
+        self._data: dict[str, dict[str, Any]] = {}
         self._path: Path | None = None
+        self._mtime: float | None = None
 
     def _resolve_path(self) -> Path:
         from ..config import get_config
         data_dir = Path(get_config().app.data_dir)
         return data_dir / "connector_test_results.json"
 
+    @staticmethod
+    def _coerce(value: object) -> dict[str, Any] | None:
+        """Normalise a raw JSON value into an entry dict (None if unusable)."""
+        if isinstance(value, bool):  # legacy format: plain bool
+            return {"connected": value, "checked_at": None}
+        if isinstance(value, dict) and value.get("connected") is not None:
+            return {
+                "connected": bool(value.get("connected")),
+                "checked_at": value.get("checked_at"),
+            }
+        return None
+
     def _load(self) -> None:
+        """Refresh the in-memory mirror if the sidecar file changed on disk."""
         path = self._resolve_path()
-        if path.exists():
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    self._data = {k: bool(v) for k, v in raw.items() if v is not None}
-            except Exception:
-                pass
+        try:
+            mtime: float | None = path.stat().st_mtime
+        except OSError:
+            mtime = None
+        if path == self._path and mtime == self._mtime:
+            return
+        self._path = path
+        self._mtime = mtime
+        if mtime is None:
+            self._data = {}
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if isinstance(raw, dict):
+            entries = ((k, self._coerce(v)) for k, v in raw.items())
+            self._data = {k: e for k, e in entries if e is not None}
 
     def get(self, connector_id: str, default: bool | None = None) -> bool | None:
-        # Always load from disk to reflect persisted state across restarts.
-        # A small cache reset on each call is acceptable at this scale.
         self._load()
-        return self._data.get(connector_id, default)
+        entry = self._data.get(connector_id)
+        return default if entry is None else bool(entry["connected"])
+
+    def get_checked_at(self, connector_id: str) -> str | None:
+        """Return the ISO-8601 timestamp of the last check, if known."""
+        self._load()
+        entry = self._data.get(connector_id)
+        return None if entry is None else entry.get("checked_at")
 
     def set(self, connector_id: str, value: bool) -> None:
         self._load()
-        self._data[connector_id] = value
+        self._data[connector_id] = {
+            "connected": bool(value),
+            "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
         self._persist()
 
     def pop(self, connector_id: str, default: object = None) -> object:
         self._load()
-        removed = self._data.pop(connector_id, default)
+        removed = self._data.pop(connector_id, None)
         self._persist()
-        return removed
+        return default if removed is None else bool(removed["connected"])
+
+    def known_ids(self) -> list[str]:
+        self._load()
+        return list(self._data)
 
     def _persist(self) -> None:
         path = self._resolve_path()
@@ -66,6 +110,11 @@ class _TestResultsStore:
             json.dumps(self._data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._path = path
+        try:
+            self._mtime = path.stat().st_mtime
+        except OSError:
+            self._mtime = None
 
 
 # Module-level singleton — shared between connectors and health routers.

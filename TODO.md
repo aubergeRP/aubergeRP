@@ -13,8 +13,6 @@ When using the project and navigating, I sometimes add items here that I think a
 - [ ] **Configurable NSFW filter** — pre/post-processing layer. Config: `chat.nsfw_filter` (`off` | `warn` | `block`). Actually the implementation is very incomplete, with just a declaration on connectors but no actual filtering logic. There is a prompt for this, make sure it is used correctly. 
 On frontend, all images generated with an NSFW connector must be blurried by default and visible only when the user clicks on them.
 
-- [ ] **Periodic connector health checks** — `_TestResultsStore` in `routers/connectors.py` currently reloads from disk on every call to `.get()` (including the `/api/health` endpoint). A better approach: run `test_connector()` for each active connector on a schedule (e.g. every 5 minutes) in the background scheduler, persist the result once, and have `/api/health` return the last known state. This avoids disk I/O on every health poll and gives operators a real-time liveness signal without user-triggered tests.
-
 - [ ] Test ComfyUI connector with a real Comfy instance and fix any issues. The connector code is currently untested and may require adjustments to work with the actual Comfy API.
 
 ---

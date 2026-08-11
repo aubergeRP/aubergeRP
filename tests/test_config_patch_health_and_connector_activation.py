@@ -234,7 +234,8 @@ def test_test_results_persist_to_disk(tmp_path, monkeypatch):
     results_file = tmp_path / "connector_test_results.json"
     assert results_file.exists()
     data = json.loads(results_file.read_text())
-    assert data["abc"] is True
+    assert data["abc"]["connected"] is True
+    assert data["abc"]["checked_at"]
 
 
 def test_test_results_loaded_from_disk(tmp_path):

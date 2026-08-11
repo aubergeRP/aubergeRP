@@ -43,27 +43,75 @@ def cleanup_images(data_dir: str | Path, older_than_days: int) -> int:
     return deleted
 
 
+async def check_connectors_health(config: Config) -> dict[str, bool]:
+    """Test every active connector and persist the result.
+
+    Returns a mapping of connector ID → connected flag for the connectors that
+    were actually tested.
+    """
+    from .routers.connectors import _last_test_results, get_connector_manager
+
+    manager = get_connector_manager()
+    results: dict[str, bool] = {}
+    ids = [config.active_connectors.text, config.active_connectors.image]
+    for connector_id in ids:
+        if not connector_id:
+            continue
+        try:
+            result = await manager.test_connector(connector_id)
+            connected = bool(result.get("connected", False))
+        except KeyError:
+            # Connector was deleted meanwhile — drop any stale result.
+            _last_test_results.pop(connector_id, None)
+            continue
+        except Exception:
+            logger.warning("Health check failed for connector '%s'", connector_id)
+            connected = False
+        _last_test_results.set(connector_id, connected)
+        results[connector_id] = connected
+    return results
+
+
 class Scheduler:
     """Simple asyncio-based background scheduler."""
 
     def __init__(self, config: Config) -> None:
         self._config = config
         self._task: asyncio.Task | None = None  # type: ignore[type-arg]
+        self._health_task: asyncio.Task | None = None  # type: ignore[type-arg]
 
     def start(self) -> None:
-        if not self._config.scheduler.enabled:
-            return
-        self._task = asyncio.create_task(self._run())
-        logger.info(
-            "Background scheduler started (interval=%ds, cleanup_older_than=%dd)",
-            self._config.scheduler.interval_seconds,
-            self._config.scheduler.cleanup_older_than_days,
-        )
+        if self._config.scheduler.enabled:
+            self._task = asyncio.create_task(self._run())
+            logger.info(
+                "Background scheduler started (interval=%ds, cleanup_older_than=%dd)",
+                self._config.scheduler.interval_seconds,
+                self._config.scheduler.cleanup_older_than_days,
+            )
+        if self._config.scheduler.health_check_enabled:
+            self._health_task = asyncio.create_task(self._run_health_checks())
+            logger.info(
+                "Connector health checks started (interval=%ds)",
+                self._config.scheduler.health_check_interval_seconds,
+            )
 
     def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            self._task = None
+        for attr in ("_task", "_health_task"):
+            task = getattr(self, attr)
+            if task is not None:
+                task.cancel()
+                setattr(self, attr, None)
+
+    async def _run_health_checks(self) -> None:
+        interval = self._config.scheduler.health_check_interval_seconds
+        # Give the app a moment to finish booting before the first check.
+        await asyncio.sleep(min(5, interval))
+        while True:
+            try:
+                await check_connectors_health(self._config)
+            except Exception:
+                logger.exception("Scheduler: error during connector health check")
+            await asyncio.sleep(interval)
 
     async def _run(self) -> None:
         while True:
