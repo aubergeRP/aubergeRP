@@ -29,11 +29,8 @@ _EMPTY_AUBERGE_EXT: dict[str, Any] = {"image_prompt_prefix": "", "negative_promp
 
 
 def _ensure_auberge_ext(extensions: dict[str, Any]) -> None:
-    ext = extensions.get(AUBERGE_EXT_KEY)
-    if not isinstance(ext, dict):
-        ext = {}
-    else:
-        ext = dict(ext)
+    raw = extensions.get(AUBERGE_EXT_KEY)
+    ext = dict(raw) if isinstance(raw, dict) else {}
     for key, default in _EMPTY_AUBERGE_EXT.items():
         ext.setdefault(key, default)
     extensions[AUBERGE_EXT_KEY] = ext

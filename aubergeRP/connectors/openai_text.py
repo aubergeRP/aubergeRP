@@ -62,30 +62,17 @@ class OpenAITextConnector(TextConnector):
         if self.config.stream_usage:
             payload["stream_options"] = {"include_usage": True}
 
-        if top_p is not None:
-            payload["top_p"] = top_p
-        elif self.config.top_p is not None:
-            payload["top_p"] = self.config.top_p
-
-        if top_k is not None:
-            payload["top_k"] = top_k
-        elif self.config.top_k is not None:
-            payload["top_k"] = self.config.top_k
-
-        if repeat_penalty is not None:
-            payload["repeat_penalty"] = repeat_penalty
-        elif self.config.repeat_penalty is not None:
-            payload["repeat_penalty"] = self.config.repeat_penalty
-
-        if presence_penalty is not None:
-            payload["presence_penalty"] = presence_penalty
-        elif self.config.presence_penalty is not None:
-            payload["presence_penalty"] = self.config.presence_penalty
-
-        if frequency_penalty is not None:
-            payload["frequency_penalty"] = frequency_penalty
-        elif self.config.frequency_penalty is not None:
-            payload["frequency_penalty"] = self.config.frequency_penalty
+        optional: dict[str, Any] = {
+            "top_p": top_p,
+            "top_k": top_k,
+            "repeat_penalty": repeat_penalty,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+        }
+        for name, override in optional.items():
+            value = override if override is not None else getattr(self.config, name)
+            if value is not None:
+                payload[name] = value
 
         # Merge extra_body: caller overrides connector config.
         extra_body_config = self.config.extra_body or {}

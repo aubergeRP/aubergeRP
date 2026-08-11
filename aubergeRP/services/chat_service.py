@@ -322,6 +322,34 @@ def _connector_model(text_connector: Any) -> str:
     return str(getattr(getattr(text_connector, "config", None), "model", "") or "")
 
 
+# Optional sampling parameters forwarded from the connector config to the
+# completion call. `extra_body` is falsy-checked (an empty dict means "unset"),
+# the others only need to be non-None.
+_SAMPLING_PARAMS = (
+    "top_p",
+    "top_k",
+    "repeat_penalty",
+    "presence_penalty",
+    "frequency_penalty",
+)
+
+
+def _sampling_kwargs(text_connector: Any) -> dict[str, Any]:
+    """Collect the optional sampling parameters set on the connector config."""
+    config = getattr(text_connector, "config", None)
+    if not config:
+        return {}
+    kwargs: dict[str, Any] = {}
+    for name in _SAMPLING_PARAMS:
+        value = getattr(config, name, None)
+        if value is not None:
+            kwargs[name] = value
+    extra_body = getattr(config, "extra_body", None)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    return kwargs
+
+
 def build_prompt(
     conversation: Conversation,
     char: CharacterCard,
@@ -433,59 +461,50 @@ class ChatService:
         self._external_chat_id = external_chat_id
         self._generation_type = generation_type
 
+    def _resolve_active_connector(
+        self, connector_type: Literal["text", "image"]
+    ) -> tuple[str, Any]:
+        """Return the active connector ``(id, instance)`` for *connector_type*.
+
+        Both parts degrade independently: the id is ``""`` when nothing is
+        active, and the instance is ``None`` when it cannot be looked up. The
+        connector manager is duck-typed because tests substitute stubs for it.
+        """
+        get_active = getattr(self._connector_manager, "get_active_id_for_type", None)
+        if not callable(get_active):
+            return "", None
+        try:
+            active_id = get_active(connector_type)
+        except Exception:
+            return "", None
+        if not isinstance(active_id, str) or not active_id:
+            return "", None
+
+        get_connector = getattr(self._connector_manager, "get_connector", None)
+        if not callable(get_connector):
+            return active_id, None
+        try:
+            return active_id, get_connector(active_id)
+        except Exception:
+            return active_id, None
+
     def _resolve_text_connector_metadata(self, text_connector: Any) -> tuple[str, str, str]:
-        connector_id = ""
+        connector_id, instance = self._resolve_active_connector("text")
         connector_name = type(text_connector).__name__
         connector_backend = str(getattr(text_connector, "backend_id", ""))
 
-        get_active = getattr(self._connector_manager, "get_active_id_for_type", None)
-        if callable(get_active):
-            try:
-                active_id = get_active("text")
-                if isinstance(active_id, str):
-                    connector_id = active_id
-            except Exception:
-                pass
-
-        if connector_id:
-            get_connector = getattr(self._connector_manager, "get_connector", None)
-            if callable(get_connector):
-                try:
-                    instance = get_connector(connector_id)
-                    name = getattr(instance, "name", "")
-                    backend = getattr(instance, "backend", "")
-                    if isinstance(name, str) and name:
-                        connector_name = name
-                    if isinstance(backend, str) and backend:
-                        connector_backend = backend
-                except Exception:
-                    pass
+        name = getattr(instance, "name", "")
+        backend = getattr(instance, "backend", "")
+        if isinstance(name, str) and name:
+            connector_name = name
+        if isinstance(backend, str) and backend:
+            connector_backend = backend
 
         return connector_id, connector_name, connector_backend
 
     def _resolve_active_connector_nsfw(self, connector_type: Literal["text", "image"]) -> bool:
         """Read nsfw flag from the active connector instance config (defaults to False)."""
-        get_active = getattr(self._connector_manager, "get_active_id_for_type", None)
-        if not callable(get_active):
-            return False
-
-        try:
-            active_id = get_active(connector_type)
-        except Exception:
-            return False
-
-        if not isinstance(active_id, str) or not active_id:
-            return False
-
-        get_connector = getattr(self._connector_manager, "get_connector", None)
-        if not callable(get_connector):
-            return False
-
-        try:
-            instance = get_connector(active_id)
-        except Exception:
-            return False
-
+        _, instance = self._resolve_active_connector(connector_type)
         config = getattr(instance, "config", {})
         if not isinstance(config, dict):
             return False
@@ -673,23 +692,7 @@ class ChatService:
             else:
                 parser = ImageMarkerParser()
 
-                # Extract optional parameters from connector config
-                connector_config = getattr(text_connector, "config", None)
-                kwargs = {}
-                if connector_config:
-                    if hasattr(connector_config, "top_p") and connector_config.top_p is not None:
-                        kwargs["top_p"] = connector_config.top_p
-                    if hasattr(connector_config, "top_k") and connector_config.top_k is not None:
-                        kwargs["top_k"] = connector_config.top_k
-                    if hasattr(connector_config, "repeat_penalty") and connector_config.repeat_penalty is not None:
-                        kwargs["repeat_penalty"] = connector_config.repeat_penalty
-                    if hasattr(connector_config, "presence_penalty") and connector_config.presence_penalty is not None:
-                        kwargs["presence_penalty"] = connector_config.presence_penalty
-                    if hasattr(connector_config, "frequency_penalty") and connector_config.frequency_penalty is not None:
-                        kwargs["frequency_penalty"] = connector_config.frequency_penalty
-                    if hasattr(connector_config, "extra_body") and connector_config.extra_body:
-                        kwargs["extra_body"] = connector_config.extra_body
-
+                kwargs = _sampling_kwargs(text_connector)
                 async for chunk in text_connector.stream_chat_completion(messages, **kwargs):
                     for ev in parser.feed(chunk):
                         if ev["type"] == "token":
@@ -813,23 +816,7 @@ class ChatService:
         """Stream using tool calling; handle generate_image tool calls."""
         tools = [_IMAGE_TOOL, _SCHEDULE_PROACTIVE_TOOL, _CANCEL_SCHEDULE_TOOL, _LIST_SCHEDULES_TOOL]
 
-        # Extract optional parameters from connector config
-        connector_config = getattr(text_connector, "config", None)
-        kwargs = {}
-        if connector_config:
-            if hasattr(connector_config, "top_p") and connector_config.top_p is not None:
-                kwargs["top_p"] = connector_config.top_p
-            if hasattr(connector_config, "top_k") and connector_config.top_k is not None:
-                kwargs["top_k"] = connector_config.top_k
-            if hasattr(connector_config, "repeat_penalty") and connector_config.repeat_penalty is not None:
-                kwargs["repeat_penalty"] = connector_config.repeat_penalty
-            if hasattr(connector_config, "presence_penalty") and connector_config.presence_penalty is not None:
-                kwargs["presence_penalty"] = connector_config.presence_penalty
-            if hasattr(connector_config, "frequency_penalty") and connector_config.frequency_penalty is not None:
-                kwargs["frequency_penalty"] = connector_config.frequency_penalty
-            if hasattr(connector_config, "extra_body") and connector_config.extra_body:
-                kwargs["extra_body"] = connector_config.extra_body
-
+        kwargs = _sampling_kwargs(text_connector)
         async for event in text_connector.stream_chat_completion_with_tools(messages, tools, **kwargs):
             if event["type"] == "token":
                 yield event
@@ -1067,6 +1054,37 @@ class ChatService:
                 "detail": IMAGE_FAILURE_MESSAGE,
             }
 
+    async def _stream_image_and_record(
+        self,
+        *,
+        char: CharacterCard,
+        gen_id: str,
+        prompt: str,
+        conversation_id: str,
+        text_connector: Any | None,
+        messages: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Run a standalone (message-less) image generation and log the result."""
+        generated_media: list[tuple[str, str]] = []
+        async for event in self._handle_image(
+            char=char,
+            gen_id=gen_id,
+            prompt=prompt,
+            text_connector=text_connector,
+            messages=messages,
+            conversation_id=conversation_id,
+        ):
+            if event["type"] == "image_complete":
+                generated_media.append((event["image_url"], event.get("prompt", "")))
+            yield event
+
+        if self._media_service is not None and generated_media:
+            self._media_service.record_generated_media(
+                conversation_id=conversation_id,
+                message_id="",
+                media_items=generated_media,
+            )
+
     async def generate_scene_image(
         self,
         conversation_id: str,
@@ -1109,25 +1127,15 @@ class ChatService:
             except Exception:
                 messages = None
 
-        generated_media: list[tuple[str, str]] = []
-        async for event in self._handle_image(
+        async for event in self._stream_image_and_record(
             char=char,
             gen_id=gen_id,
             prompt="",
+            conversation_id=conversation_id,
             text_connector=text_connector,
             messages=messages,
-            conversation_id=conversation_id,
         ):
-            if event["type"] == "image_complete":
-                generated_media.append((event["image_url"], event.get("prompt", "")))
             yield event
-
-        if self._media_service is not None and generated_media:
-            self._media_service.record_generated_media(
-                conversation_id=conversation_id,
-                message_id="",
-                media_items=generated_media,
-            )
 
     async def retry_generate_image(
         self,
@@ -1161,22 +1169,12 @@ class ChatService:
         # Re-generate the image with the stored prompt (no LLM enhancement).
         # Pass text_connector=None and messages=None so that _handle_image skips
         # the prompt refinement step and uses the prompt as-is.
-        generated_media: list[tuple[str, str]] = []
-        async for event in self._handle_image(
+        async for event in self._stream_image_and_record(
             char=char,
             gen_id=generation_id,
             prompt=prompt,
+            conversation_id=conversation_id,
             text_connector=None,
             messages=None,
-            conversation_id=conversation_id,
         ):
-            if event["type"] == "image_complete":
-                generated_media.append((event["image_url"], event.get("prompt", "")))
             yield event
-
-        if self._media_service is not None and generated_media:
-            self._media_service.record_generated_media(
-                conversation_id=conversation_id,
-                message_id="",
-                media_items=generated_media,
-            )

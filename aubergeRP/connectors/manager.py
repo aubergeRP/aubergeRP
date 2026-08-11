@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import yaml  # type: ignore[import-untyped]
 
@@ -24,6 +24,8 @@ from .openai_image import OpenAIImageConnector
 from .openai_text import OpenAITextConnector
 
 logger = logging.getLogger(__name__)
+
+_ConnectorT = TypeVar("_ConnectorT", bound=BaseConnector)
 
 
 class ConnectorManager:
@@ -90,43 +92,48 @@ class ConnectorManager:
     # Active connectors
     # ------------------------------------------------------------------
 
-    def get_active_text_connector(self) -> TextConnector | None:
-        active_id = self._config.active_connectors.text
+    def _get_active_connector(
+        self, connector_type: str, expected: type[_ConnectorT]
+    ) -> _ConnectorT | None:
+        """Build the active connector of *connector_type*, or None if unusable.
+
+        Every failure mode (nothing active, unknown id, unbuildable config,
+        wrong protocol) is logged and degrades to None so callers can surface a
+        single "no connector" message.
+        """
+        active_id = self.get_active_id_for_type(connector_type)
         if not active_id:
-            logger.debug("No active text connector configured")
+            logger.debug("No active %s connector configured", connector_type)
             return None
         try:
-            instance = self.get_connector(active_id)
-            conn = self._build_connector(instance)
-            if not isinstance(conn, TextConnector):
-                logger.warning("Active text connector %s is not a TextConnector", active_id)
-                return None
-            return conn
+            conn = self.build_connector(self.get_connector(active_id))
         except KeyError:
-            logger.warning("Active text connector %s not found in loaded connectors", active_id)
+            logger.warning(
+                "Active %s connector %s not found in loaded connectors", connector_type, active_id
+            )
             return None
         except ValueError as exc:
-            logger.warning("Failed to build active text connector %s: %s", active_id, exc)
+            logger.warning(
+                "Failed to build active %s connector %s: %s", connector_type, active_id, exc
+            )
             return None
+        if not isinstance(conn, expected):
+            logger.warning(
+                "Active %s connector %s is not a %s",
+                connector_type,
+                active_id,
+                expected.__name__,
+            )
+            return None
+        return conn
+
+    def get_active_text_connector(self) -> TextConnector | None:
+        # type-abstract: the ABC is used purely as an isinstance/type-narrowing
+        # tag here, never instantiated.
+        return self._get_active_connector("text", TextConnector)  # type: ignore[type-abstract]
 
     def get_active_image_connector(self) -> ImageConnector | None:
-        active_id = self._config.active_connectors.image
-        if not active_id:
-            logger.debug("No active image connector configured")
-            return None
-        try:
-            instance = self.get_connector(active_id)
-            conn = self._build_connector(instance)
-            if not isinstance(conn, ImageConnector):
-                logger.warning("Active image connector %s is not an ImageConnector", active_id)
-                return None
-            return conn
-        except KeyError:
-            logger.warning("Active image connector %s not found in loaded connectors", active_id)
-            return None
-        except ValueError as exc:
-            logger.warning("Failed to build active image connector %s: %s", active_id, exc)
-            return None
+        return self._get_active_connector("image", ImageConnector)  # type: ignore[type-abstract]
 
     # ------------------------------------------------------------------
     # CRUD
