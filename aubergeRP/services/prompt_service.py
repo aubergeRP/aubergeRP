@@ -114,6 +114,14 @@ PROMPT_META: dict[str, dict[str, str]] = {
             "Supports {{local_time}} and {{instruction}} placeholders."
         ),
     },
+    "character_translation": {
+        "label": "Character Card Translation",
+        "description": (
+            "Used by the one-click character translation button in the admin panel. "
+            "Supports {target_language} and {fields_json} placeholders; must ask the model "
+            "to return a JSON object with the same keys."
+        ),
+    },
     "proactive_decision": {
         "label": "Proactive Send/Skip Decision",
         "description": (

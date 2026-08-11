@@ -478,6 +478,46 @@
   </div>
 </div>
 
+<!-- ── Character Translate Dialog ── -->
+<div id="translate-dialog" class="dialog-backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="translate-dialog-title">
+  <div class="dialog">
+    <div class="dialog-header">
+      <h2 id="translate-dialog-title">Translate Character</h2>
+      <button class="dialog-close" id="translate-dialog-close" aria-label="Close">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p id="translate-dialog-intro">
+        A translated copy of the character will be created with the active text connector.
+        The original is left untouched.
+      </p>
+      <div class="form-field">
+        <label for="translate-language">Target language</label>
+        <input type="text" id="translate-language" list="translate-language-list"
+               placeholder="French" autocomplete="off">
+        <datalist id="translate-language-list">
+          <option value="English"></option>
+          <option value="French"></option>
+          <option value="Spanish"></option>
+          <option value="German"></option>
+          <option value="Italian"></option>
+          <option value="Portuguese"></option>
+          <option value="Dutch"></option>
+          <option value="Polish"></option>
+          <option value="Russian"></option>
+          <option value="Japanese"></option>
+          <option value="Korean"></option>
+          <option value="Chinese"></option>
+        </datalist>
+      </div>
+      <div class="field-error" id="translate-error"></div>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn btn-secondary" id="translate-dialog-cancel">Cancel</button>
+      <button class="btn btn-primary" id="translate-dialog-go">Translate</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Character Edit Dialog ── -->
 <div id="char-dialog" class="dialog-backdrop" style="display:none" role="dialog" aria-modal="true" aria-labelledby="char-dialog-title">
   <div class="dialog dialog-wide">

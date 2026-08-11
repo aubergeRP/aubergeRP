@@ -294,3 +294,97 @@ def test_duplicate_character(client):
 def test_duplicate_not_found(client):
     resp = client.post("/api/characters/bad-id/duplicate")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Translate
+# ---------------------------------------------------------------------------
+
+class _FakeTextConnector:
+    """Minimal text connector returning a canned reply, one chunk at a time."""
+
+    def __init__(self, reply: str):
+        self.reply = reply
+        self.prompts: list = []
+
+    async def stream_chat_completion(self, messages, **kwargs):
+        self.prompts.append(messages)
+        yield self.reply
+
+
+def _patch_connector(monkeypatch, connector):
+    import aubergeRP.routers.connectors as connectors_router
+
+    class _Manager:
+        def get_active_text_connector(self):
+            return connector
+
+    monkeypatch.setattr(connectors_router, "get_connector_manager", lambda: _Manager())
+
+
+def test_translate_character_creates_copy(client, monkeypatch):
+    card = create_char(client, name="Elara", description="An elven ranger.",
+                       first_mes="Hello there!")
+    conn = _FakeTextConnector(
+        '{"description": "Une rôdeuse elfe.", "first_mes": "Bonjour !"}'
+    )
+    _patch_connector(monkeypatch, conn)
+
+    resp = client.post(f"/api/characters/{card['id']}/translate", json={"language": "French"})
+    assert resp.status_code == 201
+    translated = resp.json()
+    assert translated["id"] != card["id"]
+    assert translated["data"]["name"] == "Elara (French)"
+    assert translated["data"]["description"] == "Une rôdeuse elfe."
+    assert translated["data"]["first_mes"] == "Bonjour !"
+
+    # Original untouched
+    original = client.get(f"/api/characters/{card['id']}").json()
+    assert original["data"]["description"] == "An elven ranger."
+
+    # The prompt carried the source fields and the target language
+    prompt = conn.prompts[0][0]["content"]
+    assert "French" in prompt
+    assert "An elven ranger." in prompt
+
+
+def test_translate_character_keeps_untranslated_fields(client, monkeypatch):
+    card = create_char(client, name="Elara", description="An elven ranger.",
+                       scenario="A forest at dusk.")
+    _patch_connector(monkeypatch, _FakeTextConnector('{"description": "Une rôdeuse elfe."}'))
+    resp = client.post(f"/api/characters/{card['id']}/translate", json={"language": "French"})
+    assert resp.status_code == 201
+    assert resp.json()["data"]["scenario"] == "A forest at dusk."
+
+
+def test_translate_character_tolerates_surrounding_prose(client, monkeypatch):
+    card = create_char(client)
+    _patch_connector(
+        monkeypatch,
+        _FakeTextConnector('Sure!\n```json\n{"description": "Une rôdeuse."}\n```'),
+    )
+    resp = client.post(f"/api/characters/{card['id']}/translate", json={"language": "French"})
+    assert resp.status_code == 201
+    assert resp.json()["data"]["description"] == "Une rôdeuse."
+
+
+def test_translate_character_invalid_llm_output(client, monkeypatch):
+    card = create_char(client)
+    _patch_connector(monkeypatch, _FakeTextConnector("I cannot do that."))
+    resp = client.post(f"/api/characters/{card['id']}/translate", json={"language": "French"})
+    assert resp.status_code == 502
+    # No stray copy was created
+    assert len(client.get("/api/characters/").json()) == 1
+
+
+def test_translate_character_no_connector(client, monkeypatch):
+    card = create_char(client)
+    _patch_connector(monkeypatch, None)
+    resp = client.post(f"/api/characters/{card['id']}/translate", json={"language": "French"})
+    assert resp.status_code == 400
+
+
+def test_translate_character_not_found(client, monkeypatch):
+    _patch_connector(monkeypatch, _FakeTextConnector('{"description": "x"}'))
+    resp = client.post("/api/characters/bad-id/translate", json={"language": "French"})
+    assert resp.status_code == 404

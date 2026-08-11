@@ -31,6 +31,7 @@ const api = {
   updateCharacter:  (id, body)  => apiFetch(`/api/characters/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   deleteCharacter:  (id)        => apiFetch(`/api/characters/${id}`, { method: 'DELETE' }),
   duplicateCharacter:(id)       => apiFetch(`/api/characters/${id}/duplicate`, { method: 'POST' }),
+  translateCharacter:(id, language) => apiFetch(`/api/characters/${id}/translate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language }) }),
   uploadAvatar:     (id, file)  => {
     const fd = new FormData();
     fd.append('file', file);
@@ -67,6 +68,14 @@ const importCancel  = document.getElementById('import-dialog-cancel');
 const importDropZone= document.getElementById('import-drop-zone');
 const importFileInp = document.getElementById('import-file-input');
 const importError   = document.getElementById('import-error');
+
+// Translate dialog
+const translateDialog = document.getElementById('translate-dialog');
+const translateClose  = document.getElementById('translate-dialog-close');
+const translateCancel = document.getElementById('translate-dialog-cancel');
+const translateGo     = document.getElementById('translate-dialog-go');
+const translateLangInp= document.getElementById('translate-language');
+const translateError  = document.getElementById('translate-error');
 
 // Char edit dialog
 const charDialog    = document.getElementById('char-dialog');
@@ -142,6 +151,13 @@ export function initCharacters({ showToast, showConfirm }) {
     const file = importFileInp.files?.[0];
     if (file) handleImportFile(file);
   });
+
+  // Translate dialog
+  translateClose.addEventListener('click', closeTranslateDialog);
+  translateCancel.addEventListener('click', closeTranslateDialog);
+  translateDialog.addEventListener('click', e => { if (e.target === translateDialog) closeTranslateDialog(); });
+  translateGo.addEventListener('click', runTranslation);
+  translateLangInp.addEventListener('keydown', e => { if (e.key === 'Enter') runTranslation(); });
 
   // Edit dialog
   charClose.addEventListener('click', closeEditDialog);
@@ -243,6 +259,7 @@ function renderCharCard(c) {
           <button class="btn-icon dropdown-toggle" title="More actions" aria-label="More actions for ${escHtml(c.name)}">⋮</button>
           <div class="dropdown-menu" style="display:none">
             <button data-action="duplicate" data-id="${c.id}">Duplicate</button>
+            <button data-action="translate" data-id="${c.id}">Translate…</button>
             <button data-action="export-json" data-id="${c.id}">Export as JSON</button>
             <button data-action="export-png" data-id="${c.id}">Export as PNG</button>
             <button data-action="delete" data-id="${c.id}" class="danger">Delete</button>
@@ -269,6 +286,8 @@ async function handleCardAction(e) {
     } catch (err) {
       showToastFn(`Duplicate failed: ${err.message}`, true);
     }
+  } else if (action === 'translate') {
+    openTranslateDialog(id);
   } else if (action === 'export-json') {
     downloadUrl(api.exportJson(id));
   } else if (action === 'export-png') {
@@ -319,6 +338,48 @@ async function handleImportFile(file) {
     await refresh();
   } catch (err) {
     importError.textContent = err.message;
+  }
+}
+
+// ── Translate dialog ──────────────────────────────────────────────────────────
+
+let translatingId = null;
+
+function openTranslateDialog(id) {
+  translatingId = id;
+  translateError.textContent = '';
+  translateLangInp.value = '';
+  translateGo.disabled = false;
+  translateGo.textContent = 'Translate';
+  translateDialog.style.display = 'flex';
+  translateLangInp.focus();
+}
+
+function closeTranslateDialog() {
+  if (translateGo.disabled) return;  // a translation is running
+  translateDialog.style.display = 'none';
+  translatingId = null;
+}
+
+async function runTranslation() {
+  const language = translateLangInp.value.trim();
+  if (!language) {
+    translateError.textContent = 'Please enter a target language.';
+    return;
+  }
+  translateError.textContent = '';
+  translateGo.disabled = true;
+  translateGo.textContent = 'Translating…';
+  try {
+    const card = await api.translateCharacter(translatingId, language);
+    translateGo.disabled = false;
+    closeTranslateDialog();
+    showToastFn(`Translated copy created: ${card.data?.name || language}.`, false);
+    await refresh();
+  } catch (err) {
+    translateGo.disabled = false;
+    translateGo.textContent = 'Translate';
+    translateError.textContent = err.message;
   }
 }
 

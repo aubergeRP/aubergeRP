@@ -204,6 +204,28 @@ Export Png
 
 **Responses:** `200` Successful Response · `422` Validation Error
 
+### `POST /api/characters/{character_id}/translate`
+
+Translate Character Endpoint
+
+Create a translated copy of a character using the active text connector.
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `language` | string | yes |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `character_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `201` Successful Response · `422` Validation Error
+
 ### `POST /api/characters/{character_id}/duplicate`
 
 Duplicate Character

@@ -4,6 +4,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from ..models.character import CharacterCard, CharacterData, CharacterSummary
 from ..services.character_service import (
@@ -169,6 +170,40 @@ def export_png(
         media_type="image/png",
         headers={"Content-Disposition": 'attachment; filename="character.png"'},
     )
+
+
+class TranslationRequest(BaseModel):
+    language: str = Field(..., min_length=1, max_length=100)
+
+
+@router.post("/{character_id}/translate", status_code=201)
+async def translate_character_endpoint(
+    character_id: str,
+    payload: TranslationRequest,
+    service: CharacterService = Depends(get_character_service),
+    admin_token: str = Depends(get_admin_token),
+) -> CharacterCard:
+    """Create a translated copy of a character using the active text connector."""
+    from ..services.character_translation_service import (
+        CharacterTranslationError,
+        translate_character,
+    )
+    from .connectors import get_connector_manager
+
+    text_connector = get_connector_manager().get_active_text_connector()
+    if text_connector is None:
+        raise HTTPException(status_code=400, detail="No active text connector configured")
+    try:
+        return await translate_character(
+            character_id,
+            payload.language,
+            service=service,
+            text_connector=text_connector,
+        )
+    except CharacterNotFoundError:
+        raise _not_found(character_id)
+    except CharacterTranslationError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 @router.post("/{character_id}/duplicate", status_code=201)

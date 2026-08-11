@@ -37,8 +37,6 @@ On frontend, all images generated with an NSFW connector must be blurried by def
 - [ ] Maintain a list of character cards websites. Actually : 
       * https://jannyai.com/characters
 
-- [ ] One-click translation of a character card in another language, using the LLM. This is a common user request and would be a nice feature to have. It could be implemented as a button on the admin panel, next to each character, that triggers the translation process.
-
 ---
 
 ## Documentation / housekeeping

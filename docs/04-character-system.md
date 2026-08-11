@@ -44,6 +44,22 @@ aubergeRP uses **SillyTavern V2** (`chara_card_v2`) as its native format, extend
 
 Export strips the wrapper fields (`id`, `has_avatar`, timestamps) — the result is a standard SillyTavern card.
 
+## Translation
+
+The admin panel offers a one-click **Translate…** action on each character
+(`POST /api/characters/{id}/translate` with `{"language": "French"}`).
+
+It is non-destructive: the card is duplicated (avatar included) and only the
+copy's free-text fields (`description`, `personality`, `first_mes`,
+`mes_example`, `scenario`, `system_prompt`, `post_history_instructions`,
+`creator_notes`) are replaced by the translation. The copy's name gets a
+` (<language>)` suffix; `name`, `tags` and `creator` are never translated.
+
+The active **text** connector performs the translation using the
+`character_translation` prompt (admin-editable). The model must answer with a
+JSON object using the same keys; if it doesn't, the request fails with HTTP 502
+and no copy is created. See `services/character_translation_service.py`.
+
 ## Macros
 
 | Macro | Replaced with |
