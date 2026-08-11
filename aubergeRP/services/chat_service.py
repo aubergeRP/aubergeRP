@@ -29,6 +29,14 @@ _MAX_IMAGE_MARKERS = 3
 _IMAGE_PROMPT_TEMPLATE = Path(__file__).parent.parent / "prompts" / "image_prompt.txt"
 _IMAGE_PROMPT_MAX_CONTEXT = 6
 
+# Shown to end users when image generation fails. The real cause often embeds
+# provider URLs and HTTP bodies, so it is recorded in the observability error
+# tail (redacted) rather than sent down the SSE stream.
+IMAGE_FAILURE_MESSAGE = (
+    "Image generation failed. "
+    "See Admin → Operations → Recent errors for details."
+)
+
 
 @dataclass(slots=True)
 class GenerationOptions:
@@ -696,7 +704,10 @@ class ChatService:
                                 "prompt": prompt,
                             }
                             image_prompts_by_generation[gen_id] = prompt
-                            async for img_event in self._handle_image(char, gen_id, prompt, text_connector, messages):
+                            async for img_event in self._handle_image(
+                                char, gen_id, prompt, text_connector, messages,
+                                conversation_id=conversation_id,
+                            ):
                                 if img_event["type"] == "image_complete":
                                     image_urls.append(img_event["image_url"])
                                     generated_media.append(
@@ -826,7 +837,10 @@ class ChatService:
                 prompt = event.get("arguments", {}).get("prompt", "")
                 gen_id = str(uuid.uuid4())
                 yield {"type": "image_start", "generation_id": gen_id, "prompt": prompt}
-                async for img_event in self._handle_image(char, gen_id, prompt, text_connector, messages):
+                async for img_event in self._handle_image(
+                    char, gen_id, prompt, text_connector, messages,
+                    conversation_id=conversation_id,
+                ):
                     yield img_event
             elif event["type"] == "tool_call":
                 try:
@@ -971,16 +985,20 @@ class ChatService:
         prompt: str,
         text_connector: Any | None = None,
         messages: list[dict[str, Any]] | None = None,
+        conversation_id: str = "",
     ) -> AsyncIterator[dict[str, Any]]:
         img_connector = self._connector_manager.get_active_image_connector()
         if img_connector is None:
+            # Actionable and secret-free, so this one is shown verbatim.
+            detail = (
+                "No image connector is configured. "
+                "Please add and activate an image connector in the admin panel."
+            )
+            record_error("image", detail, conversation_id=conversation_id)
             yield {
                 "type": "image_failed",
                 "generation_id": gen_id,
-                "detail": (
-                    "No image connector is configured. "
-                    "Please add and activate an image connector in the admin panel."
-                ),
+                "detail": detail,
             }
             return
         full_prompt = prompt
@@ -1015,10 +1033,15 @@ class ChatService:
                 elif event["type"] == "complete":
                     img_bytes = event["bytes"]
             if img_bytes is None:
+                record_error(
+                    "image",
+                    "no image returned by connector",
+                    conversation_id=conversation_id,
+                )
                 yield {
                     "type": "image_failed",
                     "generation_id": gen_id,
-                    "detail": "No image returned",
+                    "detail": IMAGE_FAILURE_MESSAGE,
                 }
                 return
             self._images_dir.mkdir(parents=True, exist_ok=True)
@@ -1037,10 +1060,11 @@ class ChatService:
                 gen_id,
                 full_prompt[:200],
             )
+            record_error("image", str(exc), conversation_id=conversation_id)
             yield {
                 "type": "image_failed",
                 "generation_id": gen_id,
-                "detail": str(exc),
+                "detail": IMAGE_FAILURE_MESSAGE,
             }
 
     async def generate_scene_image(
@@ -1055,11 +1079,16 @@ class ChatService:
         try:
             conv = self._conversation_service.get_conversation(conversation_id)
             char = self._character_service.get_character(conv.character_id)
-        except Exception:
+        except Exception as exc:
             logger.error(
                 "[Generate Scene Image] Failed to load conversation/character "
                 "(conversation_id=%r)",
                 conversation_id,
+            )
+            record_error(
+                "image",
+                f"failed to load conversation/character: {exc}",
+                conversation_id=conversation_id,
             )
             gen_id = str(uuid.uuid4())
             yield {
@@ -1087,6 +1116,7 @@ class ChatService:
             prompt="",
             text_connector=text_connector,
             messages=messages,
+            conversation_id=conversation_id,
         ):
             if event["type"] == "image_complete":
                 generated_media.append((event["image_url"], event.get("prompt", "")))
@@ -1116,10 +1146,15 @@ class ChatService:
             char = self._character_service.get_character(conv.character_id)
         except Exception as exc:
             logger.error(f"[Retry Image] Failed to load conversation/character: {exc}")
+            record_error(
+                "image",
+                f"failed to load conversation/character: {exc}",
+                conversation_id=conversation_id,
+            )
             yield {
                 "type": "image_failed",
                 "generation_id": generation_id,
-                "detail": str(exc),
+                "detail": IMAGE_FAILURE_MESSAGE,
             }
             return
 
@@ -1133,6 +1168,7 @@ class ChatService:
             prompt=prompt,
             text_connector=None,
             messages=None,
+            conversation_id=conversation_id,
         ):
             if event["type"] == "image_complete":
                 generated_media.append((event["image_url"], event.get("prompt", "")))

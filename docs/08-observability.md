@@ -72,9 +72,14 @@ together with the recent execution history. Filter by outcome or enabled state.
 ### Recent errors
 
 A concise operational error tail — timestamp, component, a redacted summary and
-the related bot/conversation/schedule id. Components: `llm`, `summarization`,
-`telegram_polling`, `telegram_webhook`, `telegram_delivery`, `scheduler`,
-`proactive`, `background`.
+the related bot/conversation/schedule id. Components: `llm`, `image`,
+`summarization`, `telegram_polling`, `telegram_webhook`, `telegram_delivery`,
+`scheduler`, `proactive`, `background`.
+
+Image-generation failures are the main reason to look here. The chat UI shows
+only a short generic message, because connector errors embed provider URLs and
+HTTP response bodies; the redacted cause is recorded under the `image`
+component with the conversation id.
 
 This is deliberately **not** a log viewer. For full detail, read the server log.
 
