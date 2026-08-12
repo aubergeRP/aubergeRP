@@ -48,6 +48,12 @@ const tokenInput  = document.getElementById('tg-bot-token');
 const charSelect  = document.getElementById('tg-bot-char');
 const enabledChk  = document.getElementById('tg-bot-enabled');
 const tokenHint   = document.getElementById('tg-token-hint');
+const modeSelect  = document.getElementById('tg-bot-mode');
+const whRow       = document.getElementById('tg-webhook-row');
+const whSecretRow = document.getElementById('tg-webhook-secret-row');
+const whUrlInput  = document.getElementById('tg-bot-webhook-url');
+const whSecretInp = document.getElementById('tg-bot-webhook-secret');
+const whPreview   = document.getElementById('tg-webhook-preview');
 
 // ── State ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +77,14 @@ function _renderBot(bot) {
     ? `<span class="conn-meta">@${_esc(bot.telegram_username)}</span>`
     : '';
 
+  const modeHtml = bot.update_mode === 'webhook'
+    ? '<span class="conn-meta">webhook</span>'
+    : '';
+
+  const whErr = bot.webhook_last_error
+    ? `<div class="conn-error" title="${_esc(bot.webhook_last_error)}">⚠ webhook: ${_esc(bot.webhook_last_error.slice(0, 80))}</div>`
+    : '';
+
   const lastErr = bot.last_error
     ? `<div class="conn-error" title="${_esc(bot.last_error)}">⚠ ${_esc(bot.last_error.slice(0, 80))}</div>`
     : '';
@@ -80,8 +94,10 @@ function _renderBot(bot) {
       <div class="conn-left">
         <span class="conn-name">${_esc(bot.name)}</span>
         ${usernameHtml}
+        ${modeHtml}
         ${_statusBadge(bot)}
         ${lastErr}
+        ${whErr}
       </div>
       <div class="conn-actions">
         <button class="btn btn-sm btn-secondary tg-edit-btn">Edit</button>
@@ -143,13 +159,49 @@ async function _populateCharSelect(selectedId = '') {
   }
 }
 
+/** Public base URL of this installation, detected from the admin page. */
+function _detectBaseUrl() {
+  const { protocol, host } = window.location;
+  // Telegram only accepts HTTPS webhooks; suggest https:// even on a local
+  // http:// admin page so the operator sees what is actually required.
+  return `${protocol === 'http:' ? 'https:' : protocol}//${host}`;
+}
+
+function _randomSecret() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function _updateWebhookPreview() {
+  const base = (whUrlInput.value || '').trim().replace(/\/+$/, '');
+  whPreview.textContent = `${base || 'https://…'}/api/telegram/webhook/<bot-id>`;
+}
+
+function _syncModeFields() {
+  const isWebhook = modeSelect.value === 'webhook';
+  whRow.style.display = isWebhook ? '' : 'none';
+  whSecretRow.style.display = isWebhook ? '' : 'none';
+  if (isWebhook && !whUrlInput.value.trim()) whUrlInput.value = _detectBaseUrl();
+  _updateWebhookPreview();
+}
+
 function _openDialog(title, bot = null) {
   dialogTitle.textContent = title;
   dialogFb.textContent = '';
   nameInput.value = bot?.name || '';
   tokenInput.value = '';
   tokenHint.style.display = bot ? '' : 'none';
-  enabledChk.checked = bot?.enabled ?? false;
+  // New bots are enabled by default; editing keeps the bot's current state.
+  enabledChk.checked = bot?.enabled ?? true;
+  modeSelect.value = bot?.update_mode || 'polling';
+  // Prefill the public URL with the domain this admin UI is served from.
+  whUrlInput.value = bot?.webhook_url || _detectBaseUrl();
+  whSecretInp.value = '';
+  whSecretInp.placeholder = bot?.webhook_secret_set
+    ? 'Leave blank to keep existing secret'
+    : 'Leave blank to auto-generate';
+  _syncModeFields();
   _editId = bot?.id || null;
   _populateCharSelect(bot?.character_id || '');
   dialog.style.display = 'flex';
@@ -174,20 +226,34 @@ async function _save() {
   const token = tokenInput.value.trim();
   const character_id = charSelect.value;
   const enabled = enabledChk.checked;
+  const update_mode = modeSelect.value;
+  const webhook_url = whUrlInput.value.trim().replace(/\/+$/, '');
 
   if (!name) { dialogFb.textContent = 'Name is required.'; return; }
   if (!_editId && !token) { dialogFb.textContent = 'Token is required for new bots.'; return; }
   if (!character_id) { dialogFb.textContent = 'Please select a character.'; return; }
+  if (update_mode === 'webhook') {
+    if (!webhook_url) { dialogFb.textContent = 'A public base URL is required in webhook mode.'; return; }
+    if (!/^https:\/\//.test(webhook_url)) {
+      dialogFb.textContent = 'The public base URL must start with https:// — Telegram refuses plain HTTP.';
+      return;
+    }
+  }
+  const secret = whSecretInp.value.trim();
 
   saveBtn.disabled = true;
   dialogFb.textContent = 'Saving…';
   try {
     if (_editId) {
-      const body = { name, character_id, enabled };
+      const body = { name, character_id, enabled, update_mode, webhook_url };
       if (token) body.token = token;  // only send if non-empty
+      if (secret) body.webhook_secret = secret;
       await api.updateBot(_editId, body);
     } else {
-      await api.createBot({ name, token, character_id, enabled });
+      await api.createBot({
+        name, token, character_id, enabled, update_mode, webhook_url,
+        webhook_secret: update_mode === 'webhook' ? (secret || _randomSecret()) : '',
+      });
     }
     _closeDialog();
     _showToast(_editId ? 'Bot updated.' : 'Bot created.', false);
@@ -264,6 +330,8 @@ export function initTelegram({ showToast, showConfirm }) {
   closeBtn.addEventListener('click', _closeDialog);
   cancelBtn.addEventListener('click', _closeDialog);
   saveBtn.addEventListener('click', _save);
+  modeSelect.addEventListener('change', _syncModeFields);
+  whUrlInput.addEventListener('input', _updateWebhookPreview);
 
   return { refresh: _refresh };
 }

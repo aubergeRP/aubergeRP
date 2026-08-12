@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from ..services.telegram_bot_service import (
     TelegramBotCreate,
+    TelegramBotInvalidError,
     TelegramBotNotFoundError,
     TelegramBotService,
     TelegramBotSummary,
@@ -55,7 +56,10 @@ def create_bot(
     svc: TelegramBotService = Depends(get_telegram_service),
     _token: str = Depends(get_admin_token),
 ) -> TelegramBotSummary:
-    return svc.create_bot(data)
+    try:
+        return svc.create_bot(data)
+    except TelegramBotInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/bots/{bot_id}", response_model=TelegramBotSummary)
@@ -71,16 +75,24 @@ def get_bot(
 
 
 @router.patch("/bots/{bot_id}", response_model=TelegramBotSummary)
-def update_bot(
+async def update_bot(
     bot_id: str,
     data: TelegramBotUpdate,
     svc: TelegramBotService = Depends(get_telegram_service),
     _token: str = Depends(get_admin_token),
 ) -> TelegramBotSummary:
     try:
-        return svc.update_bot(bot_id, data)
+        result = svc.update_bot(bot_id, data)
     except TelegramBotNotFoundError:
         raise _not_found(bot_id)
+    except TelegramBotInvalidError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # Apply the new settings immediately when the bot is already running
+    # (update mode, webhook URL, character and token all change its runtime).
+    mgr = _get_manager()
+    if mgr is not None and mgr.is_running(bot_id):
+        await mgr.restart_bot(bot_id)
+    return result
 
 
 @router.delete("/bots/{bot_id}", status_code=204)

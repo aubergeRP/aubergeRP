@@ -867,3 +867,84 @@ async def test_profile_photo_skipped_without_avatar(tmp_path):
     await mgr._sync_bot_profile("bot-1", bot, char_id)
 
     bot.set_my_profile_photo.assert_not_awaited()
+
+
+# ── Webhook configuration validation ─────────────────────────────────────────
+
+
+def test_create_webhook_bot_requires_url(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    resp = client.post("/api/telegram/bots/", json={
+        "name": "WH", "token": "123:AAA", "character_id": char_id,
+        "update_mode": "webhook",
+    })
+    assert resp.status_code == 400
+    assert "webhook URL" in resp.json()["detail"]
+
+
+def test_create_webhook_bot_rejects_plain_http(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    resp = client.post("/api/telegram/bots/", json={
+        "name": "WH", "token": "123:AAA", "character_id": char_id,
+        "update_mode": "webhook", "webhook_url": "http://rp.example.com",
+    })
+    assert resp.status_code == 400
+    assert "https://" in resp.json()["detail"]
+
+
+def test_create_webhook_bot_with_https_url(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    resp = client.post("/api/telegram/bots/", json={
+        "name": "WH", "token": "123:AAA", "character_id": char_id,
+        "update_mode": "webhook", "webhook_url": "https://rp.example.com",
+        "webhook_secret": "s3cret",
+    })
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["update_mode"] == "webhook"
+    assert body["webhook_url"] == "https://rp.example.com"
+    assert body["webhook_secret_set"] is True
+    assert "webhook_secret" not in body
+
+
+def test_switching_to_webhook_without_url_is_rejected(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    created = client.post("/api/telegram/bots/", json={
+        "name": "Poll", "token": "123:AAA", "character_id": char_id,
+    }).json()
+    resp = client.patch(f"/api/telegram/bots/{created['id']}", json={"update_mode": "webhook"})
+    assert resp.status_code == 400
+    # Configuration is left untouched.
+    assert client.get(f"/api/telegram/bots/{created['id']}").json()["update_mode"] == "polling"
+
+
+def test_update_restarts_running_bot(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    created = client.post("/api/telegram/bots/", json={
+        "name": "Poll", "token": "123:AAA", "character_id": char_id,
+    }).json()
+
+    mgr = MagicMock()
+    mgr.is_running.return_value = True
+    mgr.restart_bot = AsyncMock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.patch(f"/api/telegram/bots/{created['id']}", json={
+            "update_mode": "webhook", "webhook_url": "https://rp.example.com",
+        })
+    assert resp.status_code == 200
+    mgr.restart_bot.assert_awaited_once_with(created["id"])
+
+
+def test_update_does_not_restart_stopped_bot(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    created = client.post("/api/telegram/bots/", json={
+        "name": "Poll", "token": "123:AAA", "character_id": char_id,
+    }).json()
+
+    mgr = MagicMock()
+    mgr.is_running.return_value = False
+    mgr.restart_bot = AsyncMock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.patch(f"/api/telegram/bots/{created['id']}", json={"name": "Renamed"})
+    assert resp.status_code == 200
+    mgr.restart_bot.assert_not_awaited()

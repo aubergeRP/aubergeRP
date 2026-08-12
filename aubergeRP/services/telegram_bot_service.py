@@ -31,6 +31,10 @@ class TelegramBotConflictError(ValueError):
     pass
 
 
+class TelegramBotInvalidError(ValueError):
+    """Invalid bot configuration (e.g. webhook mode without a public URL)."""
+
+
 # ── Public Pydantic models (token deliberately absent) ───────────────────────
 
 
@@ -135,7 +139,23 @@ class TelegramBotService:
                 raise TelegramBotNotFoundError(bot_id)
             return row.token
 
+    @staticmethod
+    def _validate_webhook(update_mode: str, webhook_url: str) -> None:
+        """Webhook mode is unusable without a public HTTPS base URL."""
+        if update_mode != "webhook":
+            return
+        url = webhook_url.strip()
+        if not url:
+            raise TelegramBotInvalidError(
+                "A public webhook URL is required when update mode is 'webhook'."
+            )
+        if not url.startswith("https://"):
+            raise TelegramBotInvalidError(
+                "The webhook URL must start with https:// — Telegram refuses plain HTTP."
+            )
+
     def create_bot(self, data: TelegramBotCreate) -> TelegramBotSummary:
+        self._validate_webhook(data.update_mode, data.webhook_url)
         now = datetime.now(UTC)
         row = TelegramBotRow(
             id=str(uuid.uuid4()),
@@ -176,6 +196,7 @@ class TelegramBotService:
                 row.update_mode = data.update_mode
             if data.webhook_url is not None:
                 row.webhook_url = data.webhook_url
+            self._validate_webhook(row.update_mode, row.webhook_url)
             if data.webhook_secret is not None:
                 # Allow explicit "" to clear the secret; otherwise keep existing.
                 row.webhook_secret = data.webhook_secret

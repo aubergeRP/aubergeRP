@@ -658,6 +658,27 @@
         <select id="tg-bot-char"></select>
       </div>
       <div class="field-row">
+        <label for="tg-bot-mode">Update Mode</label>
+        <select id="tg-bot-mode">
+          <option value="polling">Polling (default — no public URL needed)</option>
+          <option value="webhook">Webhook (Telegram pushes to a public URL)</option>
+        </select>
+      </div>
+      <div class="field-row" id="tg-webhook-row" style="display:none">
+        <label for="tg-bot-webhook-url">Public Base URL <span class="required">*</span></label>
+        <input type="url" id="tg-bot-webhook-url" autocomplete="off" placeholder="https://rp.example.com">
+        <span class="field-hint">
+          Must be a public HTTPS address reachable by Telegram. Detected from this
+          page — change it if the admin UI is not on the public domain.
+          Telegram will post updates to <code id="tg-webhook-preview">…</code>
+        </span>
+      </div>
+      <div class="field-row" id="tg-webhook-secret-row" style="display:none">
+        <label for="tg-bot-webhook-secret">Webhook Secret</label>
+        <input type="password" id="tg-bot-webhook-secret" autocomplete="off" placeholder="Leave blank to auto-generate">
+        <span class="field-hint">Sent by Telegram in the <code>X-Telegram-Bot-Api-Secret-Token</code> header and verified on every update.</span>
+      </div>
+      <div class="field-row">
         <label for="tg-bot-enabled">Enabled</label>
         <input type="checkbox" id="tg-bot-enabled">
       </div>
