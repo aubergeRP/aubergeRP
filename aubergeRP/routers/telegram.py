@@ -51,15 +51,20 @@ def list_bots(
 
 
 @router.post("/bots/", status_code=201, response_model=TelegramBotSummary)
-def create_bot(
+async def create_bot(
     data: TelegramBotCreate,
     svc: TelegramBotService = Depends(get_telegram_service),
     _token: str = Depends(get_admin_token),
 ) -> TelegramBotSummary:
     try:
-        return svc.create_bot(data)
+        result = svc.create_bot(data)
     except TelegramBotInvalidError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    # A bot created as enabled must run immediately — otherwise its webhook is
+    # never registered with Telegram and no update ever arrives.
+    if result.enabled:
+        await _start_bot(svc, result)
+    return result
 
 
 @router.get("/bots/{bot_id}", response_model=TelegramBotSummary)
@@ -92,6 +97,10 @@ async def update_bot(
     mgr = _get_manager()
     if mgr is not None and mgr.is_running(bot_id):
         await mgr.restart_bot(bot_id)
+    elif result.enabled:
+        # The bot was enabled but not running (e.g. created before the runtime
+        # was wired, or a previous start failed): start it now.
+        await _start_bot(svc, result)
     return result
 
 
@@ -121,17 +130,7 @@ async def enable_bot(
         result = svc.set_enabled(bot_id, True)
     except TelegramBotNotFoundError:
         raise _not_found(bot_id)
-    mgr = _get_manager()
-    if mgr is not None:
-        token = svc.get_bot_token(bot_id)
-        await mgr.start_bot(
-            bot_id,
-            token,
-            result.character_id,
-            result.dialogue_only,
-            update_mode=result.update_mode,
-            webhook_url=result.webhook_url,
-        )
+    await _start_bot(svc, result)
     return result
 
 
@@ -185,7 +184,14 @@ async def test_bot(
         error = str(exc).replace(token, "<token>")
         logger.warning("Telegram test connection failed for bot %s: %s", bot_id, error)
 
-    return svc.record_test_result(bot_id, tg_bot_id, tg_username, error)
+    result = svc.record_test_result(bot_id, tg_bot_id, tg_username, error)
+
+    # Back-compat safety net: bots created before the runtime was started on
+    # create/update may be enabled yet never launched — no webhook registered,
+    # no profile sync.  A successful test connection starts them.
+    if not error and result.enabled and not _is_running(bot_id):
+        await _start_bot(svc, result)
+    return result
 
 
 # ── Webhook receiver ──────────────────────────────────────────────────────────
@@ -269,6 +275,30 @@ def _get_manager() -> TelegramRuntimeManager | None:
         return mgr
     except (ImportError, AttributeError):
         return None
+
+
+async def _start_bot(svc: TelegramBotService, summary: TelegramBotSummary) -> None:
+    """Launch *summary* on the shared runtime manager (no-op if already running).
+
+    Starting a bot is what registers its webhook with Telegram (webhook mode),
+    starts long-polling (polling mode) and syncs its Telegram profile from the
+    character card.
+    """
+    mgr = _get_manager()
+    if mgr is None:
+        return
+    try:
+        token = svc.get_bot_token(summary.id)
+    except TelegramBotNotFoundError:
+        return
+    await mgr.start_bot(
+        summary.id,
+        token,
+        summary.character_id,
+        summary.dialogue_only,
+        update_mode=summary.update_mode,
+        webhook_url=summary.webhook_url,
+    )
 
 
 def _is_running(bot_id: str) -> bool:

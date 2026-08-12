@@ -948,3 +948,96 @@ def test_update_does_not_restart_stopped_bot(client, tmp_path):
         resp = client.patch(f"/api/telegram/bots/{created['id']}", json={"name": "Renamed"})
     assert resp.status_code == 200
     mgr.restart_bot.assert_not_awaited()
+
+
+# ── Runtime is started on create / update / test ──────────────────────────────
+
+
+def _runtime_mock(running=False):
+    mgr = MagicMock()
+    mgr.is_running.return_value = running
+    mgr.start_bot = AsyncMock()
+    mgr.restart_bot = AsyncMock()
+    return mgr
+
+
+def test_create_enabled_bot_starts_runtime(client, tmp_path):
+    """An enabled bot must run right away — otherwise its webhook is never set."""
+    char_id = _make_character(tmp_path)
+    mgr = _runtime_mock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.post("/api/telegram/bots/", json={
+            "name": "WH", "token": "123:AAA", "character_id": char_id, "enabled": True,
+            "update_mode": "webhook", "webhook_url": "https://rp.example.com",
+        })
+    assert resp.status_code == 201
+    mgr.start_bot.assert_awaited_once()
+    kwargs = mgr.start_bot.await_args.kwargs
+    assert kwargs["update_mode"] == "webhook"
+    assert kwargs["webhook_url"] == "https://rp.example.com"
+
+
+def test_create_disabled_bot_does_not_start_runtime(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = _runtime_mock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.post("/api/telegram/bots/", json={
+            "name": "Poll", "token": "123:AAA", "character_id": char_id,
+        })
+    assert resp.status_code == 201
+    mgr.start_bot.assert_not_awaited()
+
+
+def test_update_starts_enabled_but_stopped_bot(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    created = client.post("/api/telegram/bots/", json={
+        "name": "Poll", "token": "123:AAA", "character_id": char_id,
+    }).json()
+
+    mgr = _runtime_mock()
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr):
+        resp = client.patch(f"/api/telegram/bots/{created['id']}", json={"enabled": True})
+    assert resp.status_code == 200
+    mgr.restart_bot.assert_not_awaited()
+    mgr.start_bot.assert_awaited_once()
+
+
+def test_test_connection_starts_stopped_enabled_bot(client, tmp_path):
+    """Back-compat: 'Test connection' launches a bot that was never started."""
+    char_id = _make_character(tmp_path)
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=_runtime_mock()):
+        created = client.post("/api/telegram/bots/", json={
+            "name": "WH", "token": "123:AAA", "character_id": char_id, "enabled": True,
+            "update_mode": "webhook", "webhook_url": "https://rp.example.com",
+        }).json()
+
+    me_mock = MagicMock()
+    me_mock.id = 42
+    me_mock.username = "wh_bot"
+    bot_mock = AsyncMock()
+    bot_mock.get_me = AsyncMock(return_value=me_mock)
+    bot_mock.session = AsyncMock()
+
+    mgr = _runtime_mock()
+    bot_cls = MagicMock(return_value=bot_mock)
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr), \
+         patch("aubergeRP.routers.telegram.Bot", bot_cls):
+        resp = client.post(f"/api/telegram/bots/{created['id']}/test")
+    assert resp.status_code == 200
+    mgr.start_bot.assert_awaited_once()
+
+
+def test_test_connection_does_not_start_on_failure(client, tmp_path):
+    char_id = _make_character(tmp_path)
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=_runtime_mock()):
+        created = client.post("/api/telegram/bots/", json={
+            "name": "WH", "token": "123:AAA", "character_id": char_id, "enabled": True,
+        }).json()
+
+    mgr = _runtime_mock()
+    bot_cls = MagicMock(side_effect=RuntimeError("unauthorized"))
+    with patch("aubergeRP.routers.telegram._get_manager", return_value=mgr), \
+         patch("aubergeRP.routers.telegram.Bot", bot_cls):
+        resp = client.post(f"/api/telegram/bots/{created['id']}/test")
+    assert resp.status_code == 200
+    mgr.start_bot.assert_not_awaited()
