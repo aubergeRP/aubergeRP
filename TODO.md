@@ -25,7 +25,6 @@ On frontend, all images generated with an NSFW connector must be blurried by def
 
 - [ ] **Multi-character conversations** — more than one character per conversation.
 
-- [x] **Proactive image triggering** — LLM decides on its own when to emit an image (not only on explicit user request). Config: `chat.image_autonomy` (on by default) + `chat.image_autonomy_cooldown`.
 - [ ] **Quota management** — per-conversation token limit, when connecting external APIs with quotas (like OpenAI). 
 
 - [ ] **Video generation connector** (`[VID: …]` marker, `VideoConnector` interface) — currently hidden from the UI until implemented. Design the connector interface, define the SSE event flow, and add UI controls for video playback.
