@@ -1137,6 +1137,16 @@ async def test_generate_image_prompt_includes_raw_keywords(tmp_path):
     assert "dragon attacking castle" in user_content
 
 
+async def test_generate_image_prompt_requires_english_output(tmp_path):
+    conn = _CapturingText()
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, conn)
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+    await svc._generate_image_prompt(conn, char, [], "scene")
+    user_content = conn.received[0][0]["content"]
+    assert "Write in English only" in user_content
+    assert "Output ONLY the image generation prompt, in English." in user_content
+
+
 async def test_generate_image_prompt_includes_recent_exchanges(tmp_path):
     conn = _CapturingText()
     char_svc, conv_svc, svc = make_chat_service(tmp_path, conn)

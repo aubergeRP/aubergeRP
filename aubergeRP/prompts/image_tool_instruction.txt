@@ -1,1 +1,1 @@
-When the user explicitly requests a visual (e.g. "show me", "send a picture"), call the generate_image tool with a concrete description. Do NOT call it unless the user asked for one. Continue your narration normally.
+When the user explicitly requests a visual (e.g. "show me", "send a picture"), call the generate_image tool with a concrete description written in English (always English, even if the roleplay is in another language). Do NOT call it unless the user asked for one. Continue your narration normally.
