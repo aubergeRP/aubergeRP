@@ -129,3 +129,16 @@ def test_update_config_persisted(client, tmp_path):
     with config_file.open() as f:
         saved = yaml.safe_load(f)
     assert saved["user"]["name"] == "Bilbo"
+
+
+def test_update_config_readonly_file(client, tmp_path):
+    """A non-writable config.yaml yields an explicit message, not a bare 500."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("")
+    config_file.chmod(0o400)
+    try:
+        resp = client.patch("/api/config/", json={"user": {"name": "Frodo"}})
+    finally:
+        config_file.chmod(0o600)
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "config.yaml is not writable"

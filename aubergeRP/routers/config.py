@@ -19,6 +19,7 @@ from ..models.config import (
 )
 from .admin import get_admin_token
 from .connectors import get_connector_manager
+from .errors import config_write_error
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -70,8 +71,11 @@ def _validate_text_override(connector_id: str) -> str:
 def _save_config(save_path: Path) -> None:
     config = get_config()
     data = config.model_dump()
-    with save_path.open("w") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+    try:
+        with save_path.open("w") as f:
+            yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+    except OSError as exc:
+        raise config_write_error(exc) from None
 
 
 @router.get("/")

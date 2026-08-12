@@ -17,6 +17,7 @@ from ..models.connector import (
     ConnectorUpdate,
 )
 from .admin import get_admin_token
+from .errors import config_write_error
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
@@ -248,7 +249,9 @@ def create_connector(
     if not manager.get_active_id_for_type(instance.type):
         # ValueError is raised for unsupported connector types (e.g. video/audio);
         # safe to skip auto-activation silently in that case.
-        with contextlib.suppress(ValueError):
+        # OSError: config.yaml is read-only — the connector itself was created,
+        # so only the activation is lost; surfacing it as a 500 would be wrong.
+        with contextlib.suppress(ValueError, OSError):
             manager.set_active(instance.id)
     return _redact(instance, manager.is_active(instance.id))
 
@@ -289,6 +292,8 @@ def delete_connector(
         manager.delete_connector(connector_id)
     except KeyError:
         raise _not_found(connector_id)
+    except OSError as exc:
+        raise config_write_error(exc) from None
     _last_test_results.pop(connector_id, None)
 
 
@@ -407,4 +412,6 @@ def activate_connector(
         raise _not_found(connector_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except OSError as exc:
+        raise config_write_error(exc) from None
     return {"id": instance.id, "type": instance.type, "is_active": True}
