@@ -15,12 +15,84 @@ async function apiFetch(path, options = {}) {
     let detail = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      if (body.detail) detail = body.detail;
+      if (Array.isArray(body.detail)) {
+        // FastAPI 422 — surface which field failed instead of "[object Object]".
+        detail = body.detail
+          .map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg}`)
+          .join(' — ');
+      } else if (body.detail) {
+        detail = body.detail;
+      }
     } catch (_) {}
     throw new Error(detail);
   }
   if (res.status === 204) return null;
   return res.json();
+}
+
+// ── Field table ──────────────────────────────────────────────────────────────
+//
+// Declarative map between DOM element ids and config paths, so adding a
+// setting is a one-line change instead of two hand-written getElementById
+// calls. `kind` drives both the read and the write conversion.
+//   text  → string      int   → integer
+//   float → number      bool  → checkbox
+// Read-only fields are listed with `readOnly: true`: they are displayed but
+// never sent back (the API ignores them anyway).
+
+const FIELDS = [
+  // section              id                              key                            kind
+  ['user',            'cfg-user-name',                'name',                         'text'],
+
+  ['gui',             'cfg-public-character-list',    'public_character_list',        'bool'],
+
+  ['chat',            'cfg-ooc-protection',           'ooc_protection',               'bool'],
+  ['chat',            'cfg-image-autonomy',           'image_autonomy',               'bool'],
+  ['chat',            'cfg-context-window',           'context_window',               'int'],
+  ['chat',            'cfg-summarization-threshold',  'summarization_threshold',      'float'],
+  ['chat',            'cfg-image-autonomy-cooldown',  'image_autonomy_cooldown',      'int'],
+
+  ['app',             'cfg-host',                     'host',                         'text'],
+  ['app',             'cfg-port',                     'port',                         'int'],
+  ['app',             'cfg-log-level',                'log_level',                    'text'],
+  ['app',             'cfg-sentry-dsn',               'sentry_dsn',                   'text'],
+  ['app',             'cfg-admin-token-ttl',          'admin_token_ttl_seconds',      'int'],
+  ['app',             'cfg-data-dir',                 'data_dir',                     'text', true],
+
+  ['scheduler',       'cfg-scheduler-enabled',        'enabled',                      'bool'],
+  ['scheduler',       'cfg-scheduler-interval',       'interval_seconds',             'int'],
+  ['scheduler',       'cfg-scheduler-cleanup-days',   'cleanup_older_than_days',      'int'],
+  ['scheduler',       'cfg-health-check-enabled',     'health_check_enabled',         'bool'],
+  ['scheduler',       'cfg-health-check-interval',    'health_check_interval_seconds','int'],
+
+  ['observability',   'cfg-metrics-enabled',          'metrics_enabled',              'bool'],
+].map(([section, id, key, kind, readOnly = false]) => ({ section, id, key, kind, readOnly }));
+
+function readInto(cfg) {
+  for (const { section, id, key, kind } of FIELDS) {
+    const el = document.getElementById(id);
+    const value = cfg[section]?.[key];
+    if (kind === 'bool') el.checked = value === true;
+    else el.value = value ?? '';
+  }
+}
+
+function collect() {
+  const body = {};
+  for (const { section, id, key, kind, readOnly } of FIELDS) {
+    if (readOnly) continue;
+    const el = document.getElementById(id);
+    let value;
+    if (kind === 'bool') value = el.checked;
+    else if (kind === 'int') value = parseInt(el.value, 10);
+    else if (kind === 'float') value = parseFloat(el.value);
+    else value = el.value.trim();
+    // Let the server reject blanks in numeric fields rather than silently
+    // substituting a default the admin never chose.
+    if ((kind === 'int' || kind === 'float') && Number.isNaN(value)) value = null;
+    (body[section] ??= {})[key] = value;
+  }
+  return body;
 }
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
@@ -59,10 +131,7 @@ async function refresh() {
 }
 
 function renderForm(cfg, connectors) {
-  document.getElementById('cfg-host').value      = cfg.app.host      || '';
-  document.getElementById('cfg-port').value      = cfg.app.port      || 8123;
-  document.getElementById('cfg-log-level').value = cfg.app.log_level || 'INFO';
-  document.getElementById('cfg-user-name').value = cfg.user.name     || '';
+  readInto(cfg);
 
   populateConnectorSelect('cfg-active-text',  connectors, 'text',  cfg.active_connectors.text);
   populateConnectorSelect('cfg-active-image', connectors, 'image', cfg.active_connectors.image);
@@ -95,22 +164,13 @@ async function handleSave() {
   saveBtn.disabled    = true;
   saveBtn.textContent = 'Saving…';
 
-  const port = parseInt(document.getElementById('cfg-port').value, 10);
-  const body = {
-    app: {
-      host:      document.getElementById('cfg-host').value.trim(),
-      port:      isNaN(port) ? 8123 : port,
-      log_level: document.getElementById('cfg-log-level').value,
-    },
-    user: {
-      name: document.getElementById('cfg-user-name').value.trim() || 'User',
-    },
-    active_connectors: {
-      text:  document.getElementById('cfg-active-text').value,
-      image: document.getElementById('cfg-active-image').value,
-      text_summarization: document.getElementById('cfg-active-text-summarization').value,
-      text_utility:       document.getElementById('cfg-active-text-utility').value,
-    },
+  const body = collect();
+  body.user.name = body.user.name || 'User';
+  body.active_connectors = {
+    text:  document.getElementById('cfg-active-text').value,
+    image: document.getElementById('cfg-active-image').value,
+    text_summarization: document.getElementById('cfg-active-text-summarization').value,
+    text_utility:       document.getElementById('cfg-active-text-utility').value,
   };
 
   try {

@@ -72,7 +72,10 @@ def config_client(tmp_path):
     original_path = config_module._config_path
     config_module._config_path = config_file
     seeded = Config()
-    seeded.app.data_dir = str(tmp_path)
+    # Must match the AUBERGE_DATA_DIR env override set by conftest: the env
+    # override wins on every reload, so seeding a different value would make
+    # the config appear to change on the first save/reload round-trip.
+    seeded.app.data_dir = str(tmp_path / "_appdata")
     config_module._config = seeded
     config_module._config_mtime = 0.0
 

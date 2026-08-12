@@ -361,9 +361,13 @@ Update Config
 
 | Field | Type | Required |
 |---|---|---|
-| `app` | AppConfigResponse | null | no |
+| `app` | AppConfigUpdate | null | no |
 | `user` | UserConfigResponse | null | no |
 | `active_connectors` | ActiveConnectorsResponse | null | no |
+| `chat` | ChatConfigResponse | null | no |
+| `scheduler` | SchedulerConfigResponse | null | no |
+| `observability` | ObservabilityConfigResponse | null | no |
+| `gui` | GuiVisibilityResponse | null | no |
 
 **Parameters:**
 
@@ -385,6 +389,10 @@ Patch Config
 | `app` | AppConfigPatch | null | no |
 | `user` | UserConfigPatch | null | no |
 | `active_connectors` | ActiveConnectorsPatch | null | no |
+| `chat` | ChatConfigPatch | null | no |
+| `scheduler` | SchedulerConfigPatch | null | no |
+| `observability` | ObservabilityConfigPatch | null | no |
+| `gui` | GuiVisibilityPatch | null | no |
 
 **Parameters:**
 
@@ -413,7 +421,7 @@ Update Gui Config
 | `custom_css` | string | no |
 | `custom_header_html` | string | no |
 | `custom_footer_html` | string | no |
-| `public_character_list` | boolean | no |
+| `public_character_list` | boolean | null | no |
 
 **Parameters:**
 

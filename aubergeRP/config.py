@@ -145,6 +145,12 @@ class ChatConfig(BaseModel):
     summarization_threshold: float = 0.75
     # Enable out-of-character (OOC) detection and guardrail injection.
     ooc_protection: bool = True
+    # Let the character send an image on its own initiative, not only when the
+    # user explicitly asks for one. Requires an active image connector.
+    image_autonomy: bool = True
+    # Number of assistant replies that must pass without any image before the
+    # character is allowed to send another one on its own. 0 disables the guard.
+    image_autonomy_cooldown: int = 4
 
 
 class ObservabilityConfig(BaseModel):

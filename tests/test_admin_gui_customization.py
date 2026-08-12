@@ -143,3 +143,25 @@ def test_gui_config_inline_event_handlers_stripped(client):
     data = resp.json()
     assert "onclick" not in data["custom_header_html"]
     assert "onerror" not in data["custom_footer_html"]
+
+
+def test_gui_put_without_public_list_preserves_it(client):
+    """Saving custom CSS must not silently re-publish the character list.
+
+    ``public_character_list`` is owned by the Configuration panel, so the
+    Customization panel omits it from its payload. A PUT without the field must
+    leave the stored value alone rather than fall back to the default (True).
+    """
+    client.patch("/api/config/", json={"gui": {"public_character_list": False}})
+
+    resp = client.put(
+        "/api/config/gui",
+        json={
+            "custom_css": "body { color: teal; }",
+            "custom_header_html": "",
+            "custom_footer_html": "",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["public_character_list"] is False
+    assert client.get("/api/config/gui").json()["public_character_list"] is False

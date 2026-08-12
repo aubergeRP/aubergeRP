@@ -42,6 +42,22 @@ PROMPT_META: dict[str, dict[str, str]] = {
             "Instructs the model to call the generate_image tool."
         ),
     },
+    "image_marker_instruction_autonomous": {
+        "label": "Image Marker Instruction (autonomous)",
+        "description": (
+            "Variant of the marker instruction used when chat.image_autonomy is enabled "
+            "and the image cooldown has elapsed. Lets the model emit [IMG: ...] markers "
+            "on its own initiative, not only on explicit user request."
+        ),
+    },
+    "image_tool_instruction_autonomous": {
+        "label": "Image Tool Instruction (autonomous)",
+        "description": (
+            "Variant of the tool instruction used when chat.image_autonomy is enabled "
+            "and the image cooldown has elapsed. Lets the model call generate_image on "
+            "its own initiative, not only on explicit user request."
+        ),
+    },
     "roleplay_bracket_instruction": {
         "label": "Roleplay Bracket Instruction",
         "description": (

@@ -141,7 +141,6 @@ async function main() {
       document.getElementById('customize-css').value = cfg.custom_css || '';
       document.getElementById('customize-header-html').value = cfg.custom_header_html || '';
       document.getElementById('customize-footer-html').value = cfg.custom_footer_html || '';
-      document.getElementById('customize-public-list').checked = cfg.public_character_list !== false;
       refreshCustomizeHighlights();
     } catch (err) {
       feedbackEl.innerHTML = `<div class="error-banner">Cannot load GUI config: ${err.message}</div>`;
@@ -158,7 +157,8 @@ async function main() {
       custom_css: document.getElementById('customize-css').value,
       custom_header_html: document.getElementById('customize-header-html').value,
       custom_footer_html: document.getElementById('customize-footer-html').value,
-      public_character_list: document.getElementById('customize-public-list').checked,
+      // public_character_list is owned by the Configuration panel — omitting it
+      // leaves the stored value untouched.
     };
     try {
       const res = await adminFetch('/api/config/gui', {

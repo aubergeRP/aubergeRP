@@ -814,6 +814,8 @@ class TelegramRuntimeManager:
             context_window=config.chat.context_window,
             summarization_threshold=config.chat.summarization_threshold,
             ooc_protection=config.chat.ooc_protection,
+            image_autonomy=config.chat.image_autonomy,
+            image_autonomy_cooldown=config.chat.image_autonomy_cooldown,
             statistics_service=stats_svc,
             media_service=media_svc,
             channel="telegram",

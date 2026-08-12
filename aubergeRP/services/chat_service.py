@@ -356,6 +356,26 @@ def _sampling_kwargs(text_connector: Any) -> dict[str, Any]:
     return kwargs
 
 
+def autonomy_allowed(conversation: Conversation, cooldown: int) -> bool:
+    """Return False if an image was produced in the last *cooldown* assistant messages.
+
+    Cheap, stateless anti-spam guard: the autonomous image instruction is only
+    injected once the character has gone `cooldown` replies without a picture.
+    """
+    if cooldown <= 0:
+        return True
+    seen = 0
+    for msg in reversed(conversation.messages):
+        if msg.role != "assistant":
+            continue
+        if msg.images:
+            return False
+        seen += 1
+        if seen >= cooldown:
+            break
+    return True
+
+
 def build_prompt(
     conversation: Conversation,
     char: CharacterCard,
@@ -365,15 +385,24 @@ def build_prompt(
     nsfw_policy: Literal["none", "block", "allow"] = "none",
     narration_mode: Literal["full", "dialogue_only"] = "full",
     proactive_injection: str | None = None,
+    image_enabled: bool = True,
+    image_autonomy: bool = False,
 ) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
 
     system_parts: list[str] = []
     base_prompt = char.data.system_prompt if char.data.system_prompt else get_prompt("default_system")
     system_parts.append(resolve_macros(base_prompt, char.data.name, user_name))
-    # Append the image instruction appropriate for the backend.
-    img_instruction_key = "image_tool_instruction" if use_tool_calling else "image_marker_instruction"
-    system_parts.append(get_prompt(img_instruction_key))
+    # Append the image instruction appropriate for the backend — but only when an
+    # image connector is actually available, otherwise the model would emit
+    # markers/tool calls that can never produce anything.
+    if image_enabled:
+        img_instruction_key = (
+            "image_tool_instruction" if use_tool_calling else "image_marker_instruction"
+        )
+        if image_autonomy:
+            img_instruction_key += "_autonomous"
+        system_parts.append(get_prompt(img_instruction_key))
     system_parts.append(get_prompt("roleplay_bracket_instruction"))
     no_reasoning = get_prompt("no_reasoning_instruction")
     if no_reasoning:
@@ -441,6 +470,8 @@ class ChatService:
         context_window: int = 4096,
         summarization_threshold: float = 0.75,
         ooc_protection: bool = True,
+        image_autonomy: bool = False,
+        image_autonomy_cooldown: int = 4,
         statistics_service: StatisticsService | None = None,
         media_service: MediaService | None = None,
         proactive_injection: str | None = None,
@@ -458,6 +489,8 @@ class ChatService:
         self._context_window = context_window
         self._summarization_threshold = summarization_threshold
         self._ooc_protection = ooc_protection
+        self._image_autonomy = image_autonomy
+        self._image_autonomy_cooldown = image_autonomy_cooldown
         self._statistics_service = statistics_service
         self._media_service = media_service
         self._proactive_injection = proactive_injection
@@ -705,9 +738,17 @@ class ChatService:
             nsfw_policy = "allow" if text_nsfw_enabled else "block"
 
         use_tools = getattr(text_connector, "supports_tool_calling", False)
+        image_enabled = self._connector_manager.get_active_image_connector() is not None
+        image_autonomy = (
+            image_enabled
+            and self._image_autonomy
+            and autonomy_allowed(conv, self._image_autonomy_cooldown)
+        )
         messages = build_prompt(
             conv, char, user_name,
             use_tool_calling=use_tools,
+            image_enabled=image_enabled,
+            image_autonomy=image_autonomy,
             ooc_guardrail=ooc_detected,
             nsfw_policy=nsfw_policy,
             narration_mode=options.narration_mode,
