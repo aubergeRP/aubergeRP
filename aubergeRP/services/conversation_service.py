@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from sqlmodel import Session, func, select
 
-from ..db_models import ConversationRow, MessageRow
+from ..db_models import ConversationRow, ConversationSummaryRow, MessageRow
 from ..models.conversation import Conversation, ConversationSummary, Message
 from ..services.character_service import CharacterService
 
@@ -206,6 +206,13 @@ class ConversationService:
             ).all())
             for m in msg_rows:
                 session.delete(m)
+            summary_rows = list(session.exec(
+                select(ConversationSummaryRow).where(
+                    ConversationSummaryRow.conversation_id == conversation_id
+                )
+            ).all())
+            for s in summary_rows:
+                session.delete(s)
             conv_row = session.get(ConversationRow, conversation_id)
             if conv_row is not None:
                 session.delete(conv_row)

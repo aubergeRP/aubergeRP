@@ -35,6 +35,7 @@ from ..db_models import (
     ChannelSessionRow,
     CharacterRow,
     ConversationRow,
+    ConversationSummaryRow,
     LLMCallStatRow,
     MessageRow,
     ScheduleInstanceRow,
@@ -47,8 +48,6 @@ from ..db_models import (
 MAX_ERRORS = 200
 MAX_EXECUTIONS = 200
 
-# Marker used by summarization_service for the injected summary message.
-SUMMARY_MARKER = "[Summary of earlier conversation]"
 
 #: Instant the process started; the basis for the uptime reading.
 PROCESS_STARTED_AT = datetime.now(UTC)
@@ -846,6 +845,9 @@ class ObservabilityService:
                 r for r in session.exec(select(LLMCallStatRow)).all()
                 if r.generation_type == "summarization"
             ]
+            summary_rows = list(session.exec(select(ConversationSummaryRow)).all())
+
+        stored_summaries = {row.conversation_id for row in summary_rows}
 
         by_conversation: dict[str, list[MessageRow]] = {}
         for msg in messages:
@@ -869,7 +871,6 @@ class ObservabilityService:
             )
             payload = [{"role": m.role, "content": m.content} for m in conv_messages]
             context_tokens = count_prompt_tokens(payload) if payload else 0
-            summarized = [m for m in conv_messages if m.content.startswith(SUMMARY_MARKER)]
             summary_row = last_summary.get(conv.id)
             rows.append({
                 "conversation_id": conv.id,
@@ -883,7 +884,7 @@ class ObservabilityService:
                 "context_pressure_pct": (
                     round((context_tokens / context_limit) * 100.0, 1) if context_limit else 0.0
                 ),
-                "has_stored_summary": bool(summarized),
+                "has_stored_summary": conv.id in stored_summaries,
                 "last_summary_at": _iso(summary_row.created_at) if summary_row else None,
                 "summarization_failures": failure_counts.get(conv.id, 0),
                 "updated_at": _iso(conv.updated_at),
@@ -912,10 +913,20 @@ class ObservabilityService:
                 ).all(),
                 key=lambda m: _ensure_utc(m.timestamp) or PROCESS_STARTED_AT,
             )
-        summaries = [m for m in messages if m.content.startswith(SUMMARY_MARKER)]
-        detail["stored_summary"] = summaries[-1].content if summaries else None
-        detail["summarized_messages"] = len(summaries)
-        detail["retained_messages"] = len(messages) - len(summaries)
+            summaries = sorted(
+                session.exec(
+                    select(ConversationSummaryRow).where(
+                        ConversationSummaryRow.conversation_id == conversation_id
+                    )
+                ).all(),
+                key=lambda r: _ensure_utc(r.created_at) or PROCESS_STARTED_AT,
+            )
+        latest = summaries[-1] if summaries else None
+        detail["stored_summary"] = latest.content if latest else None
+        detail["summarized_messages"] = latest.covers_message_count if latest else 0
+        detail["retained_messages"] = len(messages) - (
+            latest.covers_message_count if latest else 0
+        )
         detail["recent_messages"] = [
             {
                 "role": m.role,

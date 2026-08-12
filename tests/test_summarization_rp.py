@@ -7,7 +7,7 @@ Covers:
   4. The summary is reinjected into future context as a system message.
   5. Summarization failure preserves the original conversation history.
   6. Web and Telegram both use the same summarization path (ChatService /
-     maybe_summarize).
+     SummaryService).
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ from aubergeRP.services.prompt_service import get_prompt
 from aubergeRP.services.summarization_service import (
     _MIN_RECENT_MESSAGES,
     _build_summary_prompt,
-    maybe_summarize,
 )
+from aubergeRP.services.summary_service import SummaryService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,6 +59,29 @@ def _manager(text_conn) -> MagicMock:
 
     m.get_connector.side_effect = _get_connector
     return m
+
+
+def _conversation(tmp_path: Path, turns: int, *, filler: str = "x" * 300):
+    """Create a character + conversation with *turns* user/assistant pairs."""
+    char_svc, conv_svc = _make_services(tmp_path)
+    char = char_svc.create_character(CharacterData(name="Aria", description="A healer."))
+    conv = conv_svc.create_conversation(char.id)
+    for i in range(turns):
+        conv_svc.append_message(conv.id, "user", f"user-{i} {filler}")
+        conv_svc.append_message(conv.id, "assistant", f"assistant-{i} {filler}")
+    return char_svc, conv_svc, char, conv_svc.get_conversation(conv.id)
+
+
+async def _build(tmp_path: Path, conv, char, connector, *, context_window: int,
+                 threshold: float) -> list[dict[str, str]]:
+    return await SummaryService(tmp_path).build_prompt_within_budget(
+        conv,
+        connector=connector,
+        context_window=context_window,
+        threshold=threshold,
+        char=char,
+        user_name="Traveler",
+    )
 
 
 class _SummaryConnector:
@@ -97,58 +120,106 @@ class _FailingConnector:
         return {"connected": True}
 
 
+class _CountingConnector:
+    """Records how many times it was asked to summarize."""
+
+    connector_type = "text"
+    supports_tool_calling = False
+
+    def __init__(self, text: str = "condensed history") -> None:
+        self.calls = 0
+        self._text = text
+
+    async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
+        self.calls += 1
+        yield self._text
+
+
 # ---------------------------------------------------------------------------
 # 1. Summarization triggers near context threshold
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_summarization_triggers_near_threshold():
-    """When token count exceeds threshold × context_window, LLM is called."""
-    called = {"n": 0}
+async def test_summarization_triggers_near_threshold(tmp_path):
+    """When token count exceeds threshold × context_window, the LLM is called."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=4)
+    connector = _CountingConnector()
 
-    class _CountingConnector:
-        connector_type = "text"
-        supports_tool_calling = False
-
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            called["n"] += 1
-            yield "summary"
-
-    msgs = [
-        {"role": "system", "content": "sys"},
-        # Six old messages long enough to push over budget
-        *[{"role": "user", "content": "x" * 300} for _ in range(3)],
-        *[{"role": "assistant", "content": "y" * 300} for _ in range(3)],
-        {"role": "user", "content": "recent"},
-    ]
-
-    result = await maybe_summarize(
-        msgs, _CountingConnector(), context_window=600, threshold=0.75
+    result = await _build(
+        tmp_path, conv, char, connector, context_window=600, threshold=0.75
     )
 
-    assert called["n"] == 1, "LLM must be called when over threshold"
-    assert len(result) < len(msgs), "Result should be compressed"
+    assert connector.calls == 1, "LLM must be called when over threshold"
+    assert len(result) < len(conv.messages) + 1, "Result should be compressed"
 
 
 @pytest.mark.asyncio
-async def test_no_summarization_under_threshold():
-    """When token count is well below threshold, messages are returned unchanged."""
+async def test_no_summarization_under_threshold(tmp_path):
+    """Well below the threshold, no summarization call happens at all."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=1, filler="hi")
+    connector = _CountingConnector()
 
-    class _NeverCalledConnector:
+    await _build(tmp_path, conv, char, connector, context_window=40960, threshold=0.75)
+
+    assert connector.calls == 0
+    assert SummaryService(tmp_path).get_latest(conv.id) is None
+
+
+@pytest.mark.asyncio
+async def test_summary_is_reused_without_a_second_llm_call(tmp_path):
+    """The stored summary is reused on the next turn instead of being redone.
+
+    This is the regression that motivated persistence: the summary used to be
+    recomputed from the full history on every single turn.
+    """
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=4)
+    connector = _CountingConnector()
+
+    await _build(tmp_path, conv, char, connector, context_window=600, threshold=0.75)
+    assert connector.calls == 1
+
+    # Same conversation, next turn: the prompt now fits thanks to the summary.
+    second = await _build(
+        tmp_path, conv, char, connector, context_window=600, threshold=0.75
+    )
+    assert connector.calls == 1, "The stored summary must be reused, not recomputed"
+    assert any("[Summary" in m["content"] for m in second)
+
+
+@pytest.mark.asyncio
+async def test_next_summary_builds_on_the_previous_one(tmp_path):
+    """A follow-up summary is fed the previous summary, not the whole history."""
+    char_svc, conv_svc, char, conv = _conversation(tmp_path, turns=4)
+    svc = SummaryService(tmp_path)
+
+    class _Recorder:
         connector_type = "text"
         supports_tool_calling = False
 
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            raise AssertionError("Should not be called")
-            if False:
-                yield ""
+        def __init__(self) -> None:
+            self.excerpts: list[str] = []
+            self.n = 0
 
-    msgs = [{"role": "user", "content": "hi"}]
-    result = await maybe_summarize(
-        msgs, _NeverCalledConnector(), context_window=4096, threshold=0.75
-    )
-    assert result is msgs
+        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
+            self.n += 1
+            self.excerpts.append(messages[-1]["content"])
+            yield f"SUMMARY-{self.n}"
+
+    connector = _Recorder()
+    first = await svc.summarize_now(conv, connector)
+    assert first is not None and first.based_on_summary_id == ""
+
+    for i in range(4):
+        conv_svc.append_message(conv.id, "user", f"later-{i} " + "y" * 300)
+    conv = conv_svc.get_conversation(conv.id)
+
+    second = await svc.summarize_now(conv, connector)
+    assert second is not None
+    assert second.based_on_summary_id == first.id
+    assert "SUMMARY-1" in connector.excerpts[1], "The previous summary must be carried over"
+    assert "user-0" not in connector.excerpts[1], "Already-summarized turns are not re-read"
+    assert second.covers_message_count > first.covers_message_count
 
 
 # ---------------------------------------------------------------------------
@@ -157,53 +228,27 @@ async def test_no_summarization_under_threshold():
 
 
 @pytest.mark.asyncio
-async def test_recent_messages_verbatim_after_summarization():
-    """The _MIN_RECENT_MESSAGES most recent messages must survive summarization intact."""
+async def test_recent_messages_verbatim_after_summarization(tmp_path):
+    """The _MIN_RECENT_MESSAGES most recent messages must survive intact."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=6)
+    recent = [m.content for m in conv.messages[-_MIN_RECENT_MESSAGES:]]
 
-    class _QuickSummary:
-        connector_type = "text"
-        supports_tool_calling = False
-
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            yield "condensed history"
-
-    recent_contents = [f"recent-msg-{i}" for i in range(_MIN_RECENT_MESSAGES)]
-    old_contents = ["old-msg-" + "x" * 200 for _ in range(6)]
-
-    msgs = (
-        [{"role": "system", "content": "sys"}]
-        + [{"role": "user", "content": c} for c in old_contents]
-        + [{"role": "user", "content": c} for c in recent_contents]
+    result = await _build(
+        tmp_path, conv, char, _CountingConnector(), context_window=200, threshold=0.1
     )
 
-    result = await maybe_summarize(
-        msgs, _QuickSummary(), context_window=200, threshold=0.1
-    )
-
-    result_contents = [m.get("content", "") for m in result]
-    for c in recent_contents:
-        assert c in result_contents, f"Recent message '{c}' must be preserved verbatim"
+    contents = [m.get("content", "") for m in result]
+    for c in recent:
+        assert c in contents, f"Recent message '{c[:20]}…' must be preserved verbatim"
 
 
 @pytest.mark.asyncio
-async def test_min_recent_messages_all_preserved():
-    """Even if conversation is huge, at least _MIN_RECENT_MESSAGES are kept."""
+async def test_min_recent_messages_all_preserved(tmp_path):
+    """Even for a huge conversation, at least _MIN_RECENT_MESSAGES are kept."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=10, filler="a" * 500)
 
-    class _QuickSummary:
-        connector_type = "text"
-        supports_tool_calling = False
-
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            yield "summary"
-
-    # Build a large conversation where every message is expensive
-    msgs = [{"role": "system", "content": "s"}] + [
-        {"role": "user" if i % 2 == 0 else "assistant", "content": "a" * 500}
-        for i in range(20)
-    ]
-
-    result = await maybe_summarize(
-        msgs, _QuickSummary(), context_window=100, threshold=0.1
+    result = await _build(
+        tmp_path, conv, char, _CountingConnector(), context_window=100, threshold=0.1
     )
 
     non_system = [m for m in result if m.get("role") != "system"]
@@ -253,6 +298,16 @@ def test_build_summary_prompt_includes_excerpt():
     assert "Greetings, traveler" in combined
 
 
+def test_build_summary_prompt_includes_previous_summary():
+    """A follow-up summary must be given the summary it extends."""
+    prompt = _build_summary_prompt(
+        [{"role": "user", "content": "new turn"}], "earlier events"
+    )
+    combined = " ".join(m.get("content", "") for m in prompt)
+    assert "earlier events" in combined
+    assert "new turn" in combined
+
+
 def test_build_summary_prompt_uses_system_role_first():
     """_build_summary_prompt must start with a system message."""
     prompt = _build_summary_prompt([{"role": "user", "content": "hi"}])
@@ -266,24 +321,13 @@ def test_build_summary_prompt_uses_system_role_first():
 
 
 @pytest.mark.asyncio
-async def test_summary_injected_as_system_message():
+async def test_summary_injected_as_system_message(tmp_path):
     """After summarization the summary appears as a system message in the result."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=4)
+    connector = _CountingConnector("RELATIONSHIP: friends. EVENTS: met at inn.")
 
-    class _SumConnector:
-        connector_type = "text"
-        supports_tool_calling = False
-
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            yield "RELATIONSHIP: friends. EVENTS: met at inn."
-
-    msgs = (
-        [{"role": "system", "content": "You are Aria."}]
-        + [{"role": "user", "content": "a" * 300} for _ in range(6)]
-        + [{"role": "user", "content": "latest message"}]
-    )
-
-    result = await maybe_summarize(
-        msgs, _SumConnector(), context_window=200, threshold=0.1
+    result = await _build(
+        tmp_path, conv, char, connector, context_window=200, threshold=0.1
     )
 
     summary_msgs = [
@@ -291,71 +335,26 @@ async def test_summary_injected_as_system_message():
         if m.get("role") == "system" and "[Summary" in m.get("content", "")
     ]
     assert len(summary_msgs) == 1, "Exactly one summary system message must be present"
-    assert "RELATIONSHIP" in summary_msgs[0]["content"] or "friends" in summary_msgs[0]["content"]
+    assert "RELATIONSHIP" in summary_msgs[0]["content"]
 
 
 @pytest.mark.asyncio
-async def test_summary_placed_after_system_header():
-    """The summary system message must be placed after the original system messages."""
+async def test_summary_placed_after_system_header_and_before_history(tmp_path):
+    """The summary sits between the system header and the recent messages."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=4)
+    marker = conv.messages[-1].content
 
-    class _SumConnector:
-        connector_type = "text"
-        supports_tool_calling = False
-
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            yield "some summary"
-
-    msgs = (
-        [{"role": "system", "content": "Original system."}]
-        + [{"role": "user", "content": "x" * 400} for _ in range(6)]
-        + [{"role": "user", "content": "latest"}]
-    )
-
-    result = await maybe_summarize(
-        msgs, _SumConnector(), context_window=100, threshold=0.1
+    result = await _build(
+        tmp_path, conv, char, _CountingConnector(), context_window=100, threshold=0.1
     )
 
     assert result[0]["role"] == "system"
-    assert result[0]["content"] == "Original system."
-
-    summary_indices = [
-        i for i, m in enumerate(result)
-        if m.get("role") == "system" and "[Summary" in m.get("content", "")
-    ]
-    assert summary_indices, "Summary message must exist"
-    assert min(summary_indices) > 0, "Summary must come after original system header"
-
-
-@pytest.mark.asyncio
-async def test_summary_precedes_recent_messages_in_result():
-    """The summary must appear before the recent verbatim messages."""
-
-    class _SumConnector:
-        connector_type = "text"
-        supports_tool_calling = False
-
-        async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            yield "compact summary"
-
-    msgs = (
-        [{"role": "system", "content": "sys"}]
-        + [{"role": "user", "content": "old " * 100} for _ in range(6)]
-        + [{"role": "user", "content": "RECENT_UNIQUE_MARKER"}]
-    )
-
-    result = await maybe_summarize(
-        msgs, _SumConnector(), context_window=200, threshold=0.1
-    )
-
+    assert "Aria" in result[0]["content"], "Character system block must come first"
     summary_idx = next(
-        i for i, m in enumerate(result)
-        if "[Summary" in m.get("content", "")
+        i for i, m in enumerate(result) if "[Summary" in m.get("content", "")
     )
-    recent_idx = next(
-        i for i, m in enumerate(result)
-        if "RECENT_UNIQUE_MARKER" in m.get("content", "")
-    )
-    assert summary_idx < recent_idx, "Summary must precede recent messages"
+    recent_idx = next(i for i, m in enumerate(result) if marker in m.get("content", ""))
+    assert 0 < summary_idx < recent_idx
 
 
 # ---------------------------------------------------------------------------
@@ -364,66 +363,57 @@ async def test_summary_precedes_recent_messages_in_result():
 
 
 @pytest.mark.asyncio
-async def test_failure_returns_original_messages():
-    """If the LLM raises, the original message list is returned unchanged."""
-    msgs = [
-        {"role": "system", "content": "sys"},
-        *[{"role": "user", "content": "x" * 400} for _ in range(6)],
-        {"role": "user", "content": "latest"},
-    ]
+async def test_failure_preserves_all_history(tmp_path):
+    """On failure nothing is dropped and no summary is stored."""
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=3)
 
-    result = await maybe_summarize(
-        msgs, _FailingConnector(), context_window=100, threshold=0.1
+    result = await _build(
+        tmp_path, conv, char, _FailingConnector(), context_window=100, threshold=0.1
     )
 
-    assert result is msgs, "On failure, original messages must be returned unchanged"
+    contents = [m.get("content", "") for m in result]
+    for msg in conv.messages:
+        assert msg.content in contents, "No message may be lost when summarization fails"
+    assert SummaryService(tmp_path).get_latest(conv.id) is None
 
 
 @pytest.mark.asyncio
-async def test_failure_preserves_all_history():
-    """On failure, no messages are dropped — all history is preserved."""
-    msgs = [
-        {"role": "system", "content": "s"},
-        {"role": "user", "content": "x" * 300},
-        {"role": "assistant", "content": "y" * 300},
-        {"role": "user", "content": "latest turn"},
-    ]
-
-    result = await maybe_summarize(
-        msgs, _FailingConnector(), context_window=50, threshold=0.1
-    )
-
-    assert len(result) == len(msgs)
-    assert result[-1]["content"] == "latest turn"
-
-
-@pytest.mark.asyncio
-async def test_empty_summary_response_still_works(tmp_path):
-    """An empty summary response still produces a valid (if empty) summary entry."""
+async def test_empty_summary_response_stores_nothing(tmp_path):
+    """An empty summary is not persisted — it would erase the history for nothing."""
 
     class _EmptyConnector:
         connector_type = "text"
         supports_tool_calling = False
 
         async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
-            # Yield nothing — empty summary
-            if False:
+            if False:  # noqa: PIE790
                 yield ""
 
-    msgs = (
-        [{"role": "system", "content": "sys"}]
-        + [{"role": "user", "content": "x" * 300} for _ in range(6)]
-        + [{"role": "user", "content": "recent"}]
+    _cs, _vs, char, conv = _conversation(tmp_path, turns=4)
+
+    result = await _build(
+        tmp_path, conv, char, _EmptyConnector(), context_window=200, threshold=0.1
     )
 
-    result = await maybe_summarize(
-        msgs, _EmptyConnector(), context_window=200, threshold=0.1
-    )
+    assert SummaryService(tmp_path).get_latest(conv.id) is None
+    assert not any("[Summary" in m.get("content", "") for m in result)
 
-    # Must not crash and must include the summary placeholder
-    assert isinstance(result, list)
-    summary_msgs = [m for m in result if "[Summary" in m.get("content", "")]
-    assert len(summary_msgs) == 1
+
+@pytest.mark.asyncio
+async def test_stale_summary_is_dropped(tmp_path):
+    """If the message a summary points at is gone, the chain is invalidated."""
+    _cs, conv_svc, char, conv = _conversation(tmp_path, turns=4)
+    svc = SummaryService(tmp_path)
+    row = await svc.summarize_now(conv, _CountingConnector())
+    assert row is not None
+
+    conv_svc.delete_message(conv.id, row.covers_until_message_id)
+    conv = conv_svc.get_conversation(conv.id)
+
+    summary_text, history = svc.split_history(conv, svc.get_latest(conv.id))
+    assert summary_text == ""
+    assert len(history) == len(conv.messages)
+    assert svc.get_latest(conv.id) is None
 
 
 # ---------------------------------------------------------------------------
@@ -432,10 +422,8 @@ async def test_empty_summary_response_still_works(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_chat_service_calls_maybe_summarize(tmp_path):
-    """ChatService.generate_reply passes messages through maybe_summarize."""
-    from unittest.mock import patch
-
+async def test_chat_service_persists_a_summary(tmp_path):
+    """ChatService.generate_reply summarizes through SummaryService and stores it."""
     connector = _SummaryConnector(summary="RELATIONSHIP: allies.", reply="Reply.")
     char_svc, conv_svc = _make_services(tmp_path)
     svc = ChatService(
@@ -448,27 +436,21 @@ async def test_chat_service_calls_maybe_summarize(tmp_path):
     )
     char = char_svc.create_character(CharacterData(name="B", description="Bot."))
     conv = conv_svc.create_conversation(char.id)
+    for _ in range(4):
+        conv_svc.append_message(conv.id, "user", "hello " * 20)
+        conv_svc.append_message(conv.id, "assistant", "world " * 20)
 
     from aubergeRP.services.chat_service import GenerationOptions
 
-    captured: list = []
+    await svc.generate_reply(
+        conversation_id=conv.id,
+        content="Hello",
+        options=GenerationOptions(),
+    )
 
-    original_maybe_summarize = __import__(
-        "aubergeRP.services.summarization_service", fromlist=["maybe_summarize"]
-    ).maybe_summarize
-
-    async def _spy(messages, *args, **kwargs):
-        captured.append(messages)
-        return await original_maybe_summarize(messages, *args, **kwargs)
-
-    with patch("aubergeRP.services.chat_service.maybe_summarize", side_effect=_spy):
-        await svc.generate_reply(
-            conversation_id=conv.id,
-            content="Hello",
-            options=GenerationOptions(),
-        )
-
-    assert len(captured) >= 1, "generate_reply must call maybe_summarize"
+    stored = SummaryService(tmp_path).get_latest(conv.id)
+    assert stored is not None, "generate_reply must persist the summary it produced"
+    assert "allies" in stored.content
 
 
 def test_telegram_uses_chat_service_module():
@@ -498,7 +480,7 @@ def test_telegram_uses_chat_service_module():
 
 @pytest.mark.asyncio
 async def test_web_and_telegram_same_summarization_path(tmp_path):
-    """Both web and Telegram pass messages through maybe_summarize in ChatService."""
+    """Both web and Telegram go through ChatService, hence through SummaryService."""
     connector = _SummaryConnector(
         summary="RELATIONSHIP: allies.",
         reply="All good.",

@@ -463,15 +463,30 @@ class TestMemory:
         assert row["last_summary_at"] is not None
 
     def test_detail_exposes_stored_summary(self, client, env):
-        env["conv_svc"].append_message(
-            env["conv"].id, "system",
-            "[Summary of earlier conversation]\nThey met at the inn.",
+        import asyncio
+        from collections.abc import AsyncIterator
+
+        from aubergeRP.services.summary_service import SummaryService
+
+        conv_svc = env["conv_svc"]
+        for i in range(4):
+            conv_svc.append_message(env["conv"].id, "user", f"turn-{i}")
+
+        class _Summarizer:
+            async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
+                yield "They met at the inn."
+
+        conv = conv_svc.get_conversation(env["conv"].id)
+        row = asyncio.run(
+            SummaryService(env["dir"]).summarize_now(conv, _Summarizer())
         )
+        assert row is not None
+
         detail = client.get(f"/api/observability/memory/{env['conv'].id}").json()
         assert detail["has_stored_summary"] is True
         assert "They met at the inn." in detail["stored_summary"]
-        assert detail["summarized_messages"] == 1
-        assert detail["retained_messages"] == 2
+        assert detail["summarized_messages"] == 2
+        assert detail["retained_messages"] == 4
 
     def test_detail_without_summary(self, client, env):
         detail = client.get(f"/api/observability/memory/{env['conv'].id}").json()
@@ -642,7 +657,7 @@ class TestServiceLayer:
         """A failing summarization must be visible instead of silently swallowed."""
         import asyncio
 
-        from aubergeRP.services.summarization_service import maybe_summarize
+        from aubergeRP.services.summarization_service import summarize_excerpt
 
         class BoomConnector:
             backend_id = "openai_api"
@@ -653,16 +668,14 @@ class TestServiceLayer:
                     yield ""  # pragma: no cover
                 return gen()
 
-        messages = [{"role": "system", "content": "sys"}] + [
-            {"role": "user", "content": "x" * 4000} for _ in range(10)
-        ]
-        result = asyncio.run(maybe_summarize(
-            messages, BoomConnector(), context_window=1000, threshold=0.5,
+        messages = [{"role": "user", "content": "x" * 4000} for _ in range(10)]
+        result = asyncio.run(summarize_excerpt(
+            messages, BoomConnector(),
             conversation_id=env["conv"].id, statistics_service=env["stats"],
         ))
 
-        # Original messages are preserved (unchanged fallback behaviour).
-        assert result == messages
+        # No summary is produced, so the caller keeps the full history.
+        assert result is None
 
         service = ObservabilityService(data_dir=env["dir"])
         assert service.get_memory_summary()["summarization_failures"] == 1

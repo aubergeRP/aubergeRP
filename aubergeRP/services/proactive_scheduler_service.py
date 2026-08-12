@@ -297,10 +297,9 @@ class ProactiveScheduler:
         from ..config import get_config
         from ..connectors.manager import ConnectorManager
         from ..services.character_service import CharacterService
-        from ..services.chat_service import build_prompt
         from ..services.conversation_service import ConversationService
         from ..services.prompt_service import get_prompt
-        from ..services.summarization_service import maybe_summarize
+        from ..services.summary_service import SummaryService
 
         config = get_config()
         char_svc = CharacterService(data_dir=self._data_dir)
@@ -316,22 +315,18 @@ class ProactiveScheduler:
 
         decision_instruction = get_prompt("proactive_decision")
         payload_prompt = f"{injection}\n\n{decision_instruction}"
-        messages = build_prompt(
+        stats = self._statistics_service()
+        messages = await SummaryService(self._data_dir).build_prompt_within_budget(
             conv,
-            char,
+            connector=summarization_connector or text_connector,
+            context_window=config.chat.context_window,
+            threshold=config.chat.summarization_threshold,
+            statistics_service=stats,
+            char=char,
             user_name=config.user.name,
             use_tool_calling=False,
             ooc_guardrail=False,
             proactive_injection=payload_prompt,
-        )
-        stats = self._statistics_service()
-        messages = await maybe_summarize(
-            messages,
-            summarization_connector or text_connector,
-            config.chat.context_window,
-            config.chat.summarization_threshold,
-            conversation_id=conversation_id,
-            statistics_service=stats,
         )
         started = perf_counter()
         chunks: list[str] = []
@@ -370,9 +365,8 @@ class ProactiveScheduler:
         from ..config import get_config
         from ..connectors.manager import ConnectorManager
         from ..services.character_service import CharacterService
-        from ..services.chat_service import build_prompt
         from ..services.conversation_service import ConversationService
-        from ..services.summarization_service import maybe_summarize
+        from ..services.summary_service import SummaryService
 
         config = get_config()
         data_dir = self._data_dir
@@ -384,24 +378,24 @@ class ProactiveScheduler:
         text_connector = connector_manager.get_active_text_connector()
         if text_connector is None:
             return None
-        messages = build_prompt(
-            conv,
-            char,
-            user_name=config.user.name,
-            use_tool_calling=False,
-            ooc_guardrail=False,
-            proactive_injection=proactive_injection,
-        )
         stats = self._statistics_service()
         started = perf_counter()
+        messages: list[dict[str, str]] = []
         try:
-            messages = await maybe_summarize(
-                messages,
-                connector_manager.get_text_connector("text_summarization") or text_connector,
-                config.chat.context_window,
-                config.chat.summarization_threshold,
-                conversation_id=conversation_id,
+            messages = await SummaryService(data_dir).build_prompt_within_budget(
+                conv,
+                connector=(
+                    connector_manager.get_text_connector("text_summarization")
+                    or text_connector
+                ),
+                context_window=config.chat.context_window,
+                threshold=config.chat.summarization_threshold,
                 statistics_service=stats,
+                char=char,
+                user_name=config.user.name,
+                use_tool_calling=False,
+                ooc_guardrail=False,
+                proactive_injection=proactive_injection,
             )
             started = perf_counter()
             chunks: list[str] = []

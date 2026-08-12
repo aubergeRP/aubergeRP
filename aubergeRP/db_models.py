@@ -66,6 +66,28 @@ class MessageRow(SQLModel, table=True):
         return json.dumps(images)
 
 
+class ConversationSummaryRow(SQLModel, table=True):
+    """One row per persisted conversation summary.
+
+    Summaries are incremental: each new row is produced from the previous
+    summary plus the messages that came after it, so the narrative thread is
+    carried forward without re-reading (and re-paying for) the whole history.
+    """
+
+    __tablename__ = "conversation_summaries"
+
+    id: str = Field(primary_key=True)
+    conversation_id: str = Field(index=True)
+    content: str
+    # Last message included in this summary; messages after it are sent verbatim.
+    covers_until_message_id: str = ""
+    covers_message_count: int = 0
+    # Previous summary this one was built on ("" for the first summary).
+    based_on_summary_id: str = ""
+    tokens: int = 0
+    created_at: datetime
+
+
 class MediaRow(SQLModel, table=True):
     """One row per generated media entry shown in the admin media library."""
 

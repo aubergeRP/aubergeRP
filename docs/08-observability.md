@@ -126,9 +126,12 @@ executions* shows the history collected since the last restart.
 
 ### Summarization / context pressure
 
-Sort the Memory table by pressure. A conversation near or over the threshold
-runs a summarization round-trip on every turn — visible as `summarization` rows
-in the LLM section. Repeated `summarization` failures mean summaries are being
+Sort the Memory table by pressure. A conversation over the threshold runs one
+summarization round-trip — visible as a `summarization` row in the LLM section —
+and then reuses the stored summary until the budget is hit again. A *steady
+stream* of `summarization` rows for one conversation means summaries are not
+being reused; check the admin Summaries screen for a stale or missing chain.
+Repeated `summarization` failures mean summaries are being
 dropped and oversized prompts sent through anyway; raise `chat.context_window`
 if it understates your model, or lower `chat.summarization_threshold`.
 

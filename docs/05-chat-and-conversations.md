@@ -107,6 +107,14 @@ details: [07-character-card-schedules.md](07-character-card-schedules.md).
 
 When the prompt approaches `chat.context_window * chat.summarization_threshold` tokens, older messages are automatically compressed into a summary.
 
+That summary is **persisted** (`conversation_summaries` table) and reused: the
+following turns send `system prompt + last summary + messages since it`, with no
+extra LLM call. When the budget is hit again the next summary is built from *the
+previous summary plus the messages since*, so no turn is ever re-read. The admin
+**Summaries** screen (`/api/summaries/`) shows, per conversation, the current
+prompt size against the budget, the stored summary and the messages that follow
+it, and can force or delete a summary.
+
 ## Image marker
 
 The LLM triggers image generation by writing:

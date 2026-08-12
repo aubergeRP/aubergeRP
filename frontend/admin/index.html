@@ -36,6 +36,7 @@
     <button class="nav-btn" data-section="config">Configuration</button>
     <button class="nav-btn" data-section="customize">Customization</button>
     <button class="nav-btn" data-section="prompts">Prompts</button>
+    <button class="nav-btn" data-section="summaries">Summaries</button>
     <button class="nav-btn" data-section="telegram">Telegram Bots</button>
   </nav>
 
@@ -489,6 +490,24 @@
       <div id="prompts-list" aria-live="polite">
         <div class="loading-row">Loading…</div>
       </div>
+    </section>
+
+    <!-- ── Summaries ── -->
+    <section id="section-summaries" class="admin-section" style="display:none" aria-label="Conversation summaries">
+      <div class="section-header">
+        <h1>Summaries</h1>
+        <button class="btn btn-secondary" id="summaries-refresh-btn">Refresh</button>
+      </div>
+      <p style="margin-bottom:1rem;color:var(--color-muted,#888);font-size:0.9rem;">
+        Debug view of the context sent to the LLM: current prompt size, the last stored
+        summary and the messages that follow it. A new summary is produced only when the
+        prompt exceeds the budget (context window × threshold).
+      </p>
+      <div id="summaries-feedback"></div>
+      <div id="summaries-list" aria-live="polite">
+        <div class="loading-row">Loading…</div>
+      </div>
+      <div id="summaries-detail"></div>
     </section>
 
     <!-- ── Telegram Bots ── -->

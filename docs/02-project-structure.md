@@ -27,7 +27,8 @@ aubergeRP/
 │   │   └── metrics.py       # Optional Prometheus /metrics
 │   ├── services/            # Business logic
 │   │   ├── chat_service.py              # RP generation pipeline (transport-agnostic)
-│   │   ├── summarization_service.py     # History compression
+│   │   ├── summarization_service.py     # History compression (token counting + LLM call)
+│   │   ├── summary_service.py           # Persisted, incremental summaries
 │   │   ├── telegram_bot_service.py      # Bot config CRUD
 │   │   ├── telegram_runtime_manager.py  # Runs bots (polling / webhook)
 │   │   ├── channel_session_service.py   # external user → conversation mapping

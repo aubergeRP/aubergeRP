@@ -13,14 +13,15 @@ from typing import Any, Literal
 
 from ..connectors.manager import ConnectorManager
 from ..models.character import CharacterCard
-from ..models.conversation import Conversation
+from ..models.conversation import Conversation, Message
 from ..services.character_service import CharacterService
 from ..services.conversation_service import ConversationService, resolve_macros
 from ..services.media_service import MediaService
 from ..services.observability_service import record_error
 from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
-from ..services.summarization_service import count_prompt_tokens, maybe_summarize
+from ..services.summarization_service import count_prompt_tokens, format_summary_message
+from ..services.summary_service import SummaryService
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +388,16 @@ def build_prompt(
     proactive_injection: str | None = None,
     image_enabled: bool = True,
     image_autonomy: bool = False,
+    history: list[Message] | None = None,
+    summary_text: str | None = None,
 ) -> list[dict[str, str]]:
+    """Build the chat prompt.
+
+    *history* overrides ``conversation.messages`` — callers pass the messages
+    that came after the persisted summary.  *summary_text* is that summary; it
+    is inserted right after the system block so the model keeps the earlier
+    narrative even though those messages are no longer sent.
+    """
     messages: list[dict[str, str]] = []
 
     system_parts: list[str] = []
@@ -434,7 +444,10 @@ def build_prompt(
         system_parts.append(get_prompt("nsfw_allow_guardrail"))
     messages.append({"role": "system", "content": "\n\n".join(system_parts)})
 
-    for msg in conversation.messages:
+    if summary_text:
+        messages.append({"role": "system", "content": format_summary_message(summary_text)})
+
+    for msg in (conversation.messages if history is None else history):
         content = msg.content
         if msg.role == "user":
             content = _format_user_message_for_llm(content)
@@ -499,6 +512,7 @@ class ChatService:
         self._external_user_id = external_user_id
         self._external_chat_id = external_chat_id
         self._generation_type = generation_type
+        self._summary_service = SummaryService(conversation_service.data_dir)
 
     def _resolve_active_connector(
         self, connector_type: Literal["text", "image"]
@@ -744,8 +758,18 @@ class ChatService:
             and self._image_autonomy
             and autonomy_allowed(conv, self._image_autonomy_cooldown)
         )
-        messages = build_prompt(
-            conv, char, user_name,
+        # The prompt is built from the stored summary plus the messages that
+        # followed it; a new summary is produced only when the budget is hit.
+        conn_ctx = getattr(getattr(text_connector, "config", None), "context_window", None)
+        effective_ctx = conn_ctx if isinstance(conn_ctx, int) and conn_ctx > 0 else self._context_window
+        messages = await self._summary_service.build_prompt_within_budget(
+            conv,
+            connector=self._role_connector("text_summarization", text_connector),
+            context_window=effective_ctx,
+            threshold=self._summarization_threshold,
+            statistics_service=self._statistics_service,
+            char=char,
+            user_name=user_name,
             use_tool_calling=use_tools,
             image_enabled=image_enabled,
             image_autonomy=image_autonomy,
@@ -753,18 +777,6 @@ class ChatService:
             nsfw_policy=nsfw_policy,
             narration_mode=options.narration_mode,
             proactive_injection=self._proactive_injection,
-        )
-
-        # Summarize history if the prompt is approaching the token budget.
-        conn_ctx = getattr(getattr(text_connector, "config", None), "context_window", None)
-        effective_ctx = conn_ctx if isinstance(conn_ctx, int) and conn_ctx > 0 else self._context_window
-        messages = await maybe_summarize(
-            messages,
-            self._role_connector("text_summarization", text_connector),
-            effective_ctx,
-            self._summarization_threshold,
-            conversation_id=conversation_id,
-            statistics_service=self._statistics_service,
         )
 
         full_text = ""

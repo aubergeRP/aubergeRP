@@ -5,6 +5,7 @@ import { initMedias }    from '/js/admin/medias.js?v=3';
 import { initConfig }     from '/js/admin/config.js?v=2';
 import { initStatistics } from '/js/admin/statistics.js?v=2';
 import { initPrompts }    from '/js/admin/prompts.js?v=2';
+import { initSummaries }  from '/js/admin/summaries.js?v=1';
 import { initTelegram }   from '/js/admin/telegram.js?v=1';
 import { initObservability } from '/js/admin/observability.js?v=1';
 import { applyGuiCustomization } from '/js/gui-customization.js?v=2';
@@ -19,7 +20,7 @@ async function main() {
   applyGuiCustomization();
 
   // ── Section routing (hash-based) ────────────────────────────────────────
-  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'observability', 'config', 'customize', 'prompts', 'telegram'];
+  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'observability', 'config', 'customize', 'prompts', 'summaries', 'telegram'];
   const sectionEls = {};
   const navBtns = {};
 
@@ -49,6 +50,7 @@ async function main() {
     else if (name === 'config') configCtrl.refresh();
     else if (name === 'customize') loadCustomize();
     else if (name === 'prompts') promptsCtrl.refresh();
+    else if (name === 'summaries') summariesCtrl.refresh();
     else if (name === 'telegram') telegramCtrl.refresh();
   }
 
@@ -183,6 +185,7 @@ async function main() {
   const statsCtrl      = initStatistics({ showToast });
   const configCtrl     = initConfig({ showToast });
   const promptsCtrl    = initPrompts({ showToast });
+  const summariesCtrl  = initSummaries({ showToast });
   const telegramCtrl   = initTelegram({ showToast, showConfirm });
   const obsCtrl        = initObservability({ showToast });
 

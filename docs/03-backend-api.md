@@ -1075,6 +1075,65 @@ Get Statistics
 **Responses:** `200` Successful Response · `422` Validation Error
 
 
+## Summaries
+
+### `GET /api/summaries/`
+
+List Summaries
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `GET /api/summaries/{conversation_id}`
+
+Get Summary Detail
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `DELETE /api/summaries/{conversation_id}`
+
+Delete Summaries
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `all` | query | boolean | no | Delete the whole summary chain |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `POST /api/summaries/{conversation_id}/summarize`
+
+Force Summarize
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+
 ## Telegram
 
 ### `GET /api/telegram/bots/`

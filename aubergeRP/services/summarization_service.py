@@ -1,9 +1,10 @@
-"""Automatic conversation summarization.
+"""Conversation summarization primitives.
 
 When the messages that would be sent to the LLM approach a configurable
-fraction of the model's context window the oldest non-system messages are
-summarized into a single system message.  This keeps the prompt within budget
-without losing the narrative thread.
+fraction of the model's context window, the oldest non-system messages are
+compressed into a single summary.  Summaries are *persisted* and reused —
+see :mod:`aubergeRP.services.summary_service` for the stateful side; this
+module holds only the pure helpers (token accounting and the LLM round-trip).
 
 Token counting uses a simple four-characters-per-token heuristic so that no
 extra dependency (tiktoken etc.) is required.
@@ -11,7 +12,6 @@ extra dependency (tiktoken etc.) is required.
 from __future__ import annotations
 
 import logging
-from datetime import UTC
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +30,9 @@ _MSG_OVERHEAD_TOKENS = 4
 _REPLY_RESERVE_TOKENS = 256
 # Keep at least this many recent messages intact even after summarization.
 _MIN_RECENT_MESSAGES = 4
+
+# Marker prefixing the summary system message inside a prompt.
+SUMMARY_MARKER = "[Summary of earlier conversation]"
 
 
 def _count_tokens(text: str) -> int:
@@ -51,9 +54,28 @@ def count_prompt_tokens(messages: list[dict[str, Any]]) -> int:
     return sum(_count_message_tokens(m) for m in messages)
 
 
-def _build_summary_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Construct a prompt that asks the LLM to summarize a conversation excerpt."""
+def prompt_budget(context_window: int, threshold: float) -> int:
+    """Return the token budget a prompt must stay under before summarizing."""
+    return int(context_window * threshold) - _REPLY_RESERVE_TOKENS
+
+
+def format_summary_message(summary_text: str) -> str:
+    """Return the system-message content carrying *summary_text*."""
+    return f"{SUMMARY_MARKER}\n{summary_text.strip()}"
+
+
+def _build_summary_prompt(
+    messages: list[dict[str, Any]],
+    previous_summary: str = "",
+) -> list[dict[str, Any]]:
+    """Construct a prompt that asks the LLM to summarize a conversation excerpt.
+
+    *previous_summary* — when set — is prepended to the excerpt so the new
+    summary extends the previous one instead of losing everything before it.
+    """
     excerpt_lines: list[str] = []
+    if previous_summary:
+        excerpt_lines.append(f"{SUMMARY_MARKER}\n{previous_summary.strip()}")
     for m in messages:
         role = m.get("role", "unknown")
         content = m.get("content") or ""
@@ -113,57 +135,29 @@ def _record_summarization_call(
         logger.debug("Failed to record summarization statistics", exc_info=True)
 
 
-async def maybe_summarize(
-    messages: list[dict[str, Any]],
+async def summarize_excerpt(
+    excerpt: list[dict[str, Any]],
     connector: TextConnector,
-    context_window: int,
-    threshold: float,
     *,
+    previous_summary: str = "",
     conversation_id: str = "",
     statistics_service: StatisticsService | None = None,
-) -> list[dict[str, Any]]:
-    """Return *messages* (possibly with older turns replaced by a summary).
+) -> str | None:
+    """Summarize *excerpt* with the LLM, returning ``None`` when it fails.
 
-    If the estimated token count is below *threshold* × *context_window* the
-    list is returned unchanged.  Otherwise the oldest non-system messages (all
-    but the *_MIN_RECENT_MESSAGES* most recent) are summarised into a single
-    system message that is inserted right after the initial system block.
+    The call is non-streaming (chunks are collected) and always recorded in
+    the statistics under ``generation_type="summarization"``.
     """
-    budget = int(context_window * threshold) - _REPLY_RESERVE_TOKENS
-    if count_prompt_tokens(messages) <= budget:
-        return messages
-
-    # Split into system-header, candidates-to-summarize, and tail-to-keep.
-    # The leading block of system messages is always preserved verbatim.
-    system_head: list[dict[str, Any]] = []
-    remainder: list[dict[str, Any]] = []
-    in_head = True
-    for msg in messages:
-        if in_head and msg.get("role") == "system":
-            system_head.append(msg)
-        else:
-            in_head = False
-            remainder.append(msg)
-
-    # Keep the most recent messages intact.
-    cutoff = max(0, len(remainder) - _MIN_RECENT_MESSAGES)
-    if cutoff == 0:
-        # Nothing to summarize — return as-is to avoid infinite calls.
-        return messages
-
-    to_summarize = remainder[:cutoff]
-    to_keep = remainder[cutoff:]
-
-    # Call the LLM to produce a summary (non-streaming, collected).
+    summary_prompt = _build_summary_prompt(excerpt, previous_summary)
     summary_text = ""
-    summary_prompt = _build_summary_prompt(to_summarize)
     started = perf_counter()
     try:
         async for chunk in connector.stream_chat_completion(summary_prompt):
             summary_text += chunk
     except Exception as exc:
-        # If the summarization call fails, fall back to the original messages.
-        logger.exception("Summarization failed for conversation %s", conversation_id or "(unknown)")
+        logger.exception(
+            "Summarization failed for conversation %s", conversation_id or "(unknown)"
+        )
         record_error("summarization", str(exc), conversation_id=conversation_id)
         _record_summarization_call(
             statistics_service,
@@ -175,7 +169,7 @@ async def maybe_summarize(
             success=False,
             error_detail=str(exc),
         )
-        return messages
+        return None
 
     _record_summarization_call(
         statistics_service,
@@ -186,57 +180,16 @@ async def maybe_summarize(
         started=started,
         success=True,
     )
-
-    summary_msg: dict[str, Any] = {
-        "role": "system",
-        "content": f"[Summary of earlier conversation]\n{summary_text.strip()}",
-    }
-    return [*system_head, summary_msg, *to_keep]
+    summary_text = summary_text.strip()
+    return summary_text or None
 
 
 def summarized_content_from_messages(messages: list[dict[str, Any]]) -> str | None:
-    """Return the summary content if the first non-system message is a summary marker."""
+    """Return the summary content if one of the messages is a summary marker."""
     for msg in messages:
         if msg.get("role") == "system" and str(msg.get("content", "")).startswith(
-            "[Summary of earlier conversation]"
+            SUMMARY_MARKER
         ):
             content = msg.get("content")
             return content if isinstance(content, str) else str(content)
     return None
-
-
-def pack_summary_into_conversation(
-    conversation_messages: list[Any],
-    summary_text: str,
-    kept_count: int,
-) -> list[Any]:
-    """Replace the oldest messages in the stored conversation with a summary.
-
-    *conversation_messages* is the list of :class:`Message` model objects.
-    *kept_count* is the number of recent messages to preserve.
-    Returns a new list where the summarized messages are replaced by a single
-    summary message.
-    """
-    # This helper is intentionally thin — callers supply the Message factory.
-    # It returns a plain dict so the caller can wrap it in Message as needed.
-    import uuid
-    from datetime import datetime
-
-    cutoff = max(0, len(conversation_messages) - kept_count)
-    kept = conversation_messages[cutoff:]
-    now = datetime.now(UTC)
-    summary_entry = {
-        "id": str(uuid.uuid4()),
-        "role": "system",
-        "content": f"[Summary of earlier conversation]\n{summary_text}",
-        "images": [],
-        "timestamp": now.isoformat(),
-    }
-    return [summary_entry] + [m.model_dump(mode="json") if hasattr(m, "model_dump") else m for m in kept]
-
-
-def to_json_safe(obj: Any) -> Any:
-    """Minimal JSON serialisation helper for datetime objects."""
-    if hasattr(obj, "isoformat"):
-        return obj.isoformat()
-    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")

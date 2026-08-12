@@ -46,7 +46,8 @@ from aubergeRP.services.conversation_service import ConversationService
 from aubergeRP.services.prompt_service import get_prompt
 from aubergeRP.services.summarization_service import (
     count_prompt_tokens,
-    maybe_summarize,
+    prompt_budget,
+    summarize_excerpt,
 )
 
 _OOC_GUARDRAIL = get_prompt("ooc_guardrail")
@@ -218,70 +219,38 @@ def test_count_prompt_tokens_multiple_messages():
     assert total == 53
 
 
-@pytest.mark.asyncio
-async def test_maybe_summarize_under_threshold_unchanged():
-    """When token count is well below threshold, messages are returned unchanged."""
-
-    class _MinimalConnector:
-        async def stream_chat_completion(self, messages, **kw):
-            if False:
-                yield ""
-
-    messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}]
-    result = await maybe_summarize(
-        messages, _MinimalConnector(), context_window=4096, threshold=0.75
-    )
-    assert result is messages
+def test_prompt_budget_reserves_room_for_the_reply():
+    """The budget is the threshold share of the window minus the reply reserve."""
+    assert prompt_budget(4096, 0.75) == int(4096 * 0.75) - 256
+    assert prompt_budget(200, 0.75) < 200
 
 
 @pytest.mark.asyncio
-async def test_maybe_summarize_over_threshold_calls_llm():
-    """When over threshold, the summarization LLM is called and messages shrink."""
+async def test_summarize_excerpt_returns_the_llm_text():
+    """The excerpt is streamed to the LLM and its answer is returned."""
     summary_text = "Earlier: user greeted, assistant responded."
+    seen = {}
 
     class _SummarizingConnector:
         async def stream_chat_completion(self, messages, **kw):
+            seen["prompt"] = messages
             for word in summary_text.split():
                 yield word + " "
 
-    # Build many messages to exceed budget (need more than _MIN_RECENT_MESSAGES=4 to summarize)
-    system_msg = {"role": "system", "content": "You are X."}
-    old_messages = [
+    excerpt = [
         {"role": "user", "content": "a" * 300},
         {"role": "assistant", "content": "b" * 300},
-        {"role": "user", "content": "c" * 300},
-        {"role": "assistant", "content": "d" * 300},
-        {"role": "user", "content": "e" * 300},
-        {"role": "assistant", "content": "f" * 300},
     ]
-    recent_messages = [
-        {"role": "user", "content": "newest"},
-    ]
-    messages = [system_msg] + old_messages + recent_messages
+    result = await summarize_excerpt(excerpt, _SummarizingConnector())
 
-    result = await maybe_summarize(
-        messages,
-        _SummarizingConnector(),
-        context_window=200,  # very small window to force summarization
-        threshold=0.75,
-    )
-
-    # Result should be smaller than original
-    assert len(result) < len(messages)
-    # System message should be preserved at the front
-    assert result[0]["role"] == "system"
-    assert result[0]["content"] == "You are X."
-    # A summary system message should appear
-    summary_msgs = [m for m in result if "[Summary" in m.get("content", "")]
-    assert len(summary_msgs) == 1
-    # Most recent message should be kept
-    contents = [m.get("content", "") for m in result]
-    assert "newest" in contents
+    assert result == summary_text
+    combined = " ".join(m["content"] for m in seen["prompt"])
+    assert "a" * 300 in combined, "The excerpt must reach the LLM"
 
 
 @pytest.mark.asyncio
-async def test_maybe_summarize_fallback_on_error():
-    """If the LLM call raises, the original messages are returned unchanged."""
+async def test_summarize_excerpt_returns_none_on_error():
+    """If the LLM call raises, the caller is told so it can keep the history."""
 
     class _FailingConnector:
         async def stream_chat_completion(self, messages, **kw):
@@ -289,19 +258,25 @@ async def test_maybe_summarize_fallback_on_error():
             if False:
                 yield ""
 
-    messages = [
-        {"role": "system", "content": "sys"},
-        {"role": "user", "content": "x" * 400},
-        {"role": "assistant", "content": "y" * 400},
-        {"role": "user", "content": "latest"},
-    ]
-    result = await maybe_summarize(
-        messages,
-        _FailingConnector(),
-        context_window=100,
-        threshold=0.1,
+    result = await summarize_excerpt(
+        [{"role": "user", "content": "x" * 400}], _FailingConnector()
     )
-    assert result is messages
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_summarize_excerpt_returns_none_on_empty_answer():
+    """An empty summary must not replace the history."""
+
+    class _EmptyConnector:
+        async def stream_chat_completion(self, messages, **kw):
+            if False:
+                yield ""
+
+    result = await summarize_excerpt(
+        [{"role": "user", "content": "x" * 400}], _EmptyConnector()
+    )
+    assert result is None
 
 
 @pytest.mark.asyncio
