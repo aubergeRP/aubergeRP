@@ -71,6 +71,8 @@ to `tests/test_<name>.py`.
 
 `make test-e2e` runs the browser tests in `tests/e2e/` (requires node +
 playwright); run it only when the change is user-facing in the web UI.
+If a container named `playwright` is already running, use it instead of a
+locally installed browser.
 
 Tests use `pytest-asyncio` + `respx` for mocking httpx calls — no real network
 calls. Fixtures create a temp-dir SQLite DB — see `tests/conftest.py`.
