@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -752,3 +753,117 @@ def test_webhook_endpoint_rejects_invalid_payload(client):
         },
     )
     assert resp.status_code == 400
+
+
+# ── Bot profile sync ─────────────────────────────────────────────────────────
+
+
+def _profile_bot_mock() -> MagicMock:
+    """A Bot mock whose getters report an empty/mismatching profile."""
+    bot = MagicMock()
+    bot.get_my_name = AsyncMock(return_value=SimpleNamespace(name=""))
+    bot.get_my_description = AsyncMock(return_value=SimpleNamespace(description=""))
+    bot.get_my_short_description = AsyncMock(return_value=SimpleNamespace(short_description=""))
+    bot.set_my_name = AsyncMock()
+    bot.set_my_description = AsyncMock()
+    bot.set_my_short_description = AsyncMock()
+    bot.set_my_profile_photo = AsyncMock()
+    return bot
+
+
+@pytest.mark.asyncio
+async def test_profile_sync_pushes_name_and_descriptions(tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    bot.set_my_name.assert_awaited_once_with("Alice")
+    bot.set_my_description.assert_awaited_once_with("Test character")
+    bot.set_my_short_description.assert_awaited_once_with("Test character")
+
+
+@pytest.mark.asyncio
+async def test_profile_sync_skips_unchanged_fields(tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+    bot.get_my_name = AsyncMock(return_value=SimpleNamespace(name="Alice"))
+    bot.get_my_description = AsyncMock(return_value=SimpleNamespace(description="Test character"))
+
+    await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    bot.set_my_name.assert_not_awaited()
+    bot.set_my_description.assert_not_awaited()
+    bot.set_my_short_description.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_profile_sync_survives_api_errors(tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+    bot.set_my_name = AsyncMock(side_effect=RuntimeError("flood wait"))
+
+    # Must not raise — a failed sync never prevents the bot from starting.
+    await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    bot.set_my_description.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_profile_sync_unknown_character_is_noop(tmp_path):
+    _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    await mgr._sync_bot_profile("bot-1", bot, "does-not-exist")
+
+    bot.set_my_name.assert_not_awaited()
+
+
+def _write_avatar(tmp_path, char_id: str, color: str = "red") -> None:
+    import io
+
+    from PIL import Image
+
+    from aubergeRP.services.character_service import CharacterService
+    buf = io.BytesIO()
+    Image.new("RGBA", (8, 8), color).save(buf, format="PNG")
+    CharacterService(data_dir=tmp_path / "data").save_avatar(char_id, buf.getvalue())
+
+
+@pytest.mark.asyncio
+async def test_profile_photo_uploaded_once_per_avatar(tmp_path):
+    import sys
+
+    char_id = _make_character(tmp_path)
+    _write_avatar(tmp_path, char_id)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    types_mock = MagicMock()
+    with patch.dict(sys.modules, {"aiogram.types": types_mock}):
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+        assert bot.set_my_profile_photo.await_count == 1
+
+        # Same avatar → no re-upload.
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+        assert bot.set_my_profile_photo.await_count == 1
+
+        # Changed avatar → uploaded again.
+        _write_avatar(tmp_path, char_id, color="blue")
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+        assert bot.set_my_profile_photo.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_profile_photo_skipped_without_avatar(tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    bot.set_my_profile_photo.assert_not_awaited()

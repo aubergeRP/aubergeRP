@@ -24,12 +24,22 @@ Media handling
   If no caption is provided a placeholder is used.
 - Outgoing images: when the generation result includes image paths the images
   are sent via ``send_photo`` before the text reply.
+
+Bot profile sync
+----------------
+When a bot starts, its Telegram profile (name, description, short description
+and profile photo) is synchronised from the bound character card.  Text fields
+are only pushed when they differ from what Telegram already holds; the photo is
+only re-uploaded when the avatar changed (tracked by a hash marker file).
+Failures are logged and never prevent the bot from running.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,6 +55,24 @@ logger = logging.getLogger(__name__)
 
 # Maximum Telegram message length (Bot API limit).
 _TG_MAX_LEN = 4096
+
+# Bot API limits for the bot profile fields.
+_TG_MAX_NAME_LEN = 64
+_TG_MAX_DESCRIPTION_LEN = 512
+_TG_MAX_SHORT_DESCRIPTION_LEN = 120
+
+
+def _png_to_jpeg(raw: bytes) -> bytes:
+    """Convert image bytes to a JPEG — Telegram only accepts .JPG profile photos."""
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(raw)) as img:
+        rgb = img.convert("RGB")
+        out = io.BytesIO()
+        rgb.save(out, format="JPEG", quality=90)
+    return out.getvalue()
 
 
 def split_message(text: str, max_len: int = _TG_MAX_LEN) -> list[str]:
@@ -210,6 +238,7 @@ class TelegramRuntimeManager:
             self._dispatchers[bot_id] = dp
 
             self._register_handlers(dp, bot_id, character_id, bot, dialogue_only)
+            await self._sync_bot_profile(bot_id, bot, character_id)
 
             # Ensure no leftover webhook is registered before starting polling.
             with contextlib.suppress(Exception):
@@ -256,6 +285,7 @@ class TelegramRuntimeManager:
             self._dispatchers[bot_id] = dp
 
             self._register_handlers(dp, bot_id, character_id, bot, dialogue_only)
+            await self._sync_bot_profile(bot_id, bot, character_id)
 
             # Retrieve current webhook secret from the DB.
             svc = TelegramBotService(self._data_dir)
@@ -302,6 +332,94 @@ class TelegramRuntimeManager:
             if b is not None:
                 with contextlib.suppress(Exception):
                     await b.session.close()
+
+    # ── Bot profile sync ─────────────────────────────────────────────────────
+
+    async def _sync_bot_profile(self, bot_id: str, bot: Bot, character_id: str) -> None:
+        """Push the character's name / description / avatar to the bot profile.
+
+        Best effort: any failure is logged and swallowed so a bot always starts.
+        """
+        try:
+            from .character_service import CharacterService
+            char_svc = CharacterService(data_dir=self._data_dir)
+            char = char_svc.get_character(character_id)
+        except Exception:
+            logger.warning("Telegram bot %s: cannot load character for profile sync", bot_id)
+            return
+
+        name = char.data.name.strip()[:_TG_MAX_NAME_LEN]
+        description = char.data.description.strip()[:_TG_MAX_DESCRIPTION_LEN]
+        short_description = (
+            char.data.creator_notes.strip() or char.data.description.strip()
+        )[:_TG_MAX_SHORT_DESCRIPTION_LEN]
+
+        await self._set_if_changed(bot_id, "name", bot.get_my_name, bot.set_my_name, name)
+        await self._set_if_changed(
+            bot_id, "description", bot.get_my_description, bot.set_my_description, description
+        )
+        await self._set_if_changed(
+            bot_id,
+            "short_description",
+            bot.get_my_short_description,
+            bot.set_my_short_description,
+            short_description,
+        )
+
+        avatar_path = None
+        with contextlib.suppress(Exception):
+            avatar_path = CharacterService(data_dir=self._data_dir).get_avatar_path(character_id)
+        if avatar_path is not None:
+            await self._sync_profile_photo(bot_id, bot, avatar_path)
+
+    async def _set_if_changed(
+        self,
+        bot_id: str,
+        field: str,
+        getter: object,
+        setter: object,
+        value: str,
+    ) -> None:
+        """Call *setter* with *value* only when Telegram holds a different value."""
+        if not value:
+            return
+        try:
+            current = await getter()  # type: ignore[operator]
+            if getattr(current, field, None) == value:
+                return
+            await setter(value)  # type: ignore[operator]
+        except Exception as exc:
+            logger.warning("Telegram bot %s: failed to sync %s: %s", bot_id, field, exc)
+            return
+        logger.info("Telegram bot %s: profile %s updated", bot_id, field)
+
+    async def _sync_profile_photo(self, bot_id: str, bot: Bot, avatar_path: Path) -> None:
+        """Upload the character avatar as the bot's profile photo (once per change)."""
+        marker = self._data_dir / "telegram_profile" / f"{bot_id}.sha256"
+        try:
+            raw = avatar_path.read_bytes()
+            digest = hashlib.sha256(raw).hexdigest()
+            if marker.exists() and marker.read_text().strip() == digest:
+                return
+
+            jpeg = _png_to_jpeg(raw)
+
+            from aiogram.types import BufferedInputFile, InputProfilePhotoStatic
+            await bot.set_my_profile_photo(
+                photo=InputProfilePhotoStatic(
+                    photo=BufferedInputFile(jpeg, filename="avatar.jpg"),
+                )
+            )
+        except Exception as exc:
+            logger.warning("Telegram bot %s: failed to sync profile photo: %s", bot_id, exc)
+            return
+
+        with contextlib.suppress(Exception):
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            tmp = marker.with_suffix(".tmp")
+            tmp.write_text(digest)
+            os.rename(tmp, marker)
+        logger.info("Telegram bot %s: profile photo updated", bot_id)
 
     # ── Handlers ─────────────────────────────────────────────────────────────
 
