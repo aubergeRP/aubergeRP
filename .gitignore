@@ -11,3 +11,5 @@ reports/
 badges/
 .coverage
 .codegraph/
+# Node deps for e2e tests
+node_modules/

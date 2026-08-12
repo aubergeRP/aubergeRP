@@ -35,6 +35,8 @@ async function main() {
       navBtns[s].classList.toggle('active', s === name);
       navBtns[s].setAttribute('aria-current', s === name ? 'page' : 'false');
     });
+    // Keep the active tab visible in the mobile horizontal nav.
+    navBtns[name].scrollIntoView({ block: 'nearest', inline: 'nearest' });
     // Only the visible Operations section keeps polling.
     obsCtrl.setVisible(name === 'observability');
     window.location.hash = name;

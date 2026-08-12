@@ -762,6 +762,7 @@ body {
   #input-area { padding: 0.5rem; padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px)); }
   #char-header { padding: 0.5rem 0.75rem; }
   #message-list { padding: 0.75rem 0.5rem; }
+  #statusbar { gap: 0.75rem; overflow-x: auto; white-space: nowrap; }
 }
 
 /* ─── Lightbox ───────────────────────────────────────────────────────────── */

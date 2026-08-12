@@ -1251,10 +1251,95 @@
   color: #fff;
 }
 
-@media (max-width: 640px) {
-  #admin-nav { width: 120px; }
-  #admin-content { padding: 1rem; }
-  .dialog { max-width: 100%; }
-  .col-conv, .col-msg, .col-url { display: none; }
+/* ─── Responsive / mobile ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Stack: nav becomes a horizontal, scrollable tab bar above the content */
+  #admin-main { flex-direction: column; }
+
+  #admin-nav {
+    width: 100%;
+    flex-direction: row;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  #admin-nav::-webkit-scrollbar { display: none; }
+
+  .nav-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-height: 44px;
+    padding: 0.6rem 0.9rem;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+  }
+  .nav-btn.active { border-left-color: transparent; border-bottom-color: var(--color-accent); }
+
+  #admin-content { padding: 1rem 0.85rem calc(1rem + env(safe-area-inset-bottom, 0px)); }
+
+  /* Section headers wrap instead of squeezing their buttons */
+  .section-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+  .btn-group { flex-wrap: wrap; }
+  .btn-group .select-inline,
+  .btn-group select { flex: 1 1 auto; min-width: 0; }
+
+  /* Touch targets */
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 34px; }
+  .btn-icon { min-width: 36px; min-height: 36px; }
+
+  /* Cards: actions drop to their own row instead of crushing the text */
+  .conn-card, .char-card { flex-wrap: wrap; }
+  .conn-actions, .char-card-actions { margin-left: auto; }
+  .char-card-desc { white-space: normal; }
+
+  /* 16px inputs stop iOS Safari from zooming on focus */
+  .field-row input[type="text"],
+  .field-row input[type="number"],
+  .field-row input[type="password"],
+  .field-row select,
+  .field-row textarea { font-size: 16px; }
+  .field-row input[type="checkbox"] { width: 20px; height: 20px; }
+  .nsfw-toggle { width: 100%; }
+
+  /* Dialogs become bottom sheets */
+  .dialog-backdrop { padding: 0; align-items: flex-end; }
+  .dialog, .dialog-wide, .dialog-narrow {
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+  }
+  .dialog-actions {
+    flex-wrap: wrap;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+  .dialog-actions .btn { flex: 1 1 auto; }
+
+  /* Panels & data displays */
+  .stats-summary-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .stats-panel { padding: 0.6rem 0.5rem; }
+  .stats-canvas { height: 200px; }
+  .health-dl { grid-template-columns: 1fr; gap: 0.15rem; margin-bottom: 1rem; }
+  .health-dl dd { margin-bottom: 0.4rem; }
+  .obs-panel-head { align-items: flex-start; }
+  .obs-filters { width: 100%; }
+  .obs-filters select { flex: 1 1 45%; min-width: 0; }
+  .obs-webhook .obs-muted { display: block; min-width: 0; }
+  .media-lightbox { max-width: 94vw; padding: 1rem; }
+  .prompt-block { padding: 0.75rem; }
   .prompt-block-header { flex-direction: column; }
+}
+
+@media (max-width: 640px) {
+  /* Drop the low-value identifier columns on narrow screens */
+  .col-conv, .col-msg, .col-url { display: none; }
 }
