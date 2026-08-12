@@ -1,0 +1,33 @@
+# Run the published image from the GitHub Container Registry — no checkout,
+# no build. This file is self-contained: copy it anywhere and run it.
+#
+# First run — create the config file next to this one, owned by the container
+# user (uid 1001), otherwise the admin panel cannot save its changes:
+#
+#   curl -o config.yaml https://raw.githubusercontent.com/aubergeRP/aubergeRP/main/config.example.yaml
+#   sudo chown 1001:1001 config.yaml
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Upgrade:
+#
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# The port is bound to 127.0.0.1 only: AubergeRP has no hardening for public
+# exposure — put it behind a reverse proxy or a VPN if you need remote access.
+services:
+  auberge-app:
+    image: ghcr.io/aubergerp/aubergerp:${AUBERGE_TAG:-latest}
+    container_name: auberge-app
+    restart: unless-stopped
+    volumes:
+      # Database, uploads, generated images.
+      - auberge-data:/data
+      # Connectors and app settings — rewritten by the admin panel, so it must
+      # live on the host to survive an image upgrade.
+      - ./config.yaml:/app/config.yaml
+    ports:
+      - "127.0.0.1:${AUBERGE_PORT:-8123}:8123"
+
+volumes:
+  auberge-data:

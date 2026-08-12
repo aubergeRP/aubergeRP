@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY pyproject.toml ./
 COPY aubergeRP/ ./aubergeRP/
 COPY frontend/  ./frontend/
-COPY config.example.yaml ./config.yaml
+# The admin panel rewrites this file at runtime — it must be writable by the
+# unprivileged user the container runs as.
+COPY --chown=auberge:auberge config.example.yaml ./config.yaml
 
 RUN mkdir -p /data && chown auberge:auberge /data
 
