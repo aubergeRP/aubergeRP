@@ -142,3 +142,153 @@ def test_update_config_readonly_file(client, tmp_path):
         config_file.chmod(0o600)
     assert resp.status_code == 500
     assert resp.json()["detail"] == "config.yaml is not writable"
+
+
+# ---------------------------------------------------------------------------
+# Extended sections: chat / scheduler / observability / gui
+# ---------------------------------------------------------------------------
+
+
+def test_get_config_exposes_all_sections(client):
+    """Every settings group must be reachable from the admin API."""
+    data = client.get("/api/config/").json()
+    assert set(data) == {
+        "app",
+        "user",
+        "active_connectors",
+        "chat",
+        "scheduler",
+        "observability",
+        "gui",
+    }
+    assert data["chat"]["context_window"] == 4096
+    assert data["chat"]["summarization_threshold"] == 0.75
+    assert data["scheduler"]["cleanup_older_than_days"] == 30
+    assert data["observability"]["metrics_enabled"] is False
+    assert data["gui"]["public_character_list"] is True
+
+
+def test_get_config_never_exposes_admin_secrets(client):
+    app_data = client.get("/api/config/").json()["app"]
+    assert "admin_password_hash" not in app_data
+    assert "admin_jwt_secret" not in app_data
+    assert "data_dir" in app_data  # informational, read-only
+
+
+def test_put_round_trips_new_sections(client):
+    resp = client.put(
+        "/api/config/",
+        json={
+            "chat": {
+                "context_window": 16384,
+                "summarization_threshold": 0.5,
+                "ooc_protection": False,
+                "image_autonomy": False,
+                "image_autonomy_cooldown": 0,
+            },
+            "scheduler": {
+                "enabled": True,
+                "interval_seconds": 3600,
+                "cleanup_older_than_days": 7,
+                "health_check_enabled": False,
+                "health_check_interval_seconds": 60,
+            },
+            "observability": {"metrics_enabled": True},
+            "gui": {"public_character_list": False},
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["chat"]["context_window"] == 16384
+    assert data["chat"]["ooc_protection"] is False
+    assert data["scheduler"]["enabled"] is True
+    assert data["scheduler"]["cleanup_older_than_days"] == 7
+    assert data["observability"]["metrics_enabled"] is True
+    assert data["gui"]["public_character_list"] is False
+    # Survives a reload from disk.
+    assert client.get("/api/config/").json() == data
+
+
+def test_put_app_accepts_sentry_and_token_ttl(client):
+    resp = client.put(
+        "/api/config/",
+        json={
+            "app": {
+                "host": "127.0.0.1",
+                "port": 9000,
+                "log_level": "DEBUG",
+                "sentry_dsn": "https://key@sentry.example/1",
+                "admin_token_ttl_seconds": 3600,
+            }
+        },
+    )
+    assert resp.status_code == 200
+    app_data = resp.json()["app"]
+    assert app_data["sentry_dsn"] == "https://key@sentry.example/1"
+    assert app_data["admin_token_ttl_seconds"] == 3600
+
+
+def test_put_ignores_read_only_data_dir(client):
+    before = client.get("/api/config/").json()["app"]["data_dir"]
+    resp = client.put(
+        "/api/config/",
+        json={
+            "app": {
+                "host": "0.0.0.0",
+                "port": 8123,
+                "log_level": "INFO",
+                "data_dir": "/somewhere/else",
+            }
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["app"]["data_dir"] == before
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"chat": {"summarization_threshold": 1.5}},
+        {"chat": {"summarization_threshold": 0}},
+        {"chat": {"context_window": 0}},
+        {"chat": {"image_autonomy_cooldown": -1}},
+        {"scheduler": {"interval_seconds": 0}},
+        {"scheduler": {"cleanup_older_than_days": 0}},
+        {"scheduler": {"health_check_interval_seconds": 0}},
+        {"app": {"admin_token_ttl_seconds": 0}},
+        {"app": {"port": 0}},
+        {"app": {"port": 70000}},
+    ],
+)
+def test_patch_rejects_out_of_range_values(client, payload):
+    assert client.patch("/api/config/", json=payload).status_code == 422
+
+
+def test_patch_only_touches_provided_fields(client):
+    client.put(
+        "/api/config/",
+        json={
+            "chat": {
+                "context_window": 8192,
+                "summarization_threshold": 0.6,
+                "ooc_protection": True,
+                "image_autonomy": True,
+                "image_autonomy_cooldown": 2,
+            }
+        },
+    )
+    resp = client.patch("/api/config/", json={"chat": {"ooc_protection": False}})
+    assert resp.status_code == 200
+    chat = resp.json()["chat"]
+    assert chat["ooc_protection"] is False
+    assert chat["context_window"] == 8192
+    assert chat["summarization_threshold"] == 0.6
+    assert chat["image_autonomy_cooldown"] == 2
+
+
+def test_patch_public_character_list(client):
+    resp = client.patch("/api/config/", json={"gui": {"public_character_list": False}})
+    assert resp.status_code == 200
+    assert resp.json()["gui"]["public_character_list"] is False
+    # And it reaches the dedicated GUI endpoint too — one setting, one source.
+    assert client.get("/api/config/gui").json()["public_character_list"] is False

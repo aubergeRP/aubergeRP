@@ -6,15 +6,19 @@ from pathlib import Path
 import yaml  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..config import _strip_js, get_config
+from ..config import ChatConfig, ObservabilityConfig, SchedulerConfig, _strip_js, get_config
 from ..models.config import (
     ActiveConnectorsResponse,
     AppConfigResponse,
+    ChatConfigResponse,
     ConfigPatch,
     ConfigResponse,
     ConfigUpdate,
     GuiConfigResponse,
     GuiConfigUpdate,
+    GuiVisibilityResponse,
+    ObservabilityConfigResponse,
+    SchedulerConfigResponse,
     UserConfigResponse,
 )
 from .admin import get_admin_token
@@ -29,12 +33,20 @@ def get_config_save_path() -> Path:
 
 
 def _to_response() -> ConfigResponse:
+    """Project the live config onto the API shape.
+
+    ``app.admin_password_hash`` and ``app.admin_jwt_secret`` are intentionally
+    never included: they are secrets and are only settable via config.yaml/env.
+    """
     config = get_config()
     return ConfigResponse(
         app=AppConfigResponse(
             host=config.app.host,
             port=config.app.port,
             log_level=config.app.log_level,
+            sentry_dsn=config.app.sentry_dsn,
+            admin_token_ttl_seconds=config.app.admin_token_ttl_seconds,
+            data_dir=config.app.data_dir,
         ),
         user=UserConfigResponse(name=config.user.name),
         active_connectors=ActiveConnectorsResponse(
@@ -43,6 +55,10 @@ def _to_response() -> ConfigResponse:
             text_summarization=config.active_connectors.text_summarization,
             text_utility=config.active_connectors.text_utility,
         ),
+        chat=ChatConfigResponse(**config.chat.model_dump()),
+        scheduler=SchedulerConfigResponse(**config.scheduler.model_dump()),
+        observability=ObservabilityConfigResponse(**config.observability.model_dump()),
+        gui=GuiVisibilityResponse(public_character_list=config.gui.public_character_list),
     )
 
 
@@ -95,6 +111,8 @@ def update_config(
         config.app.host = update.app.host
         config.app.port = update.app.port
         config.app.log_level = update.app.log_level
+        config.app.sentry_dsn = update.app.sentry_dsn
+        config.app.admin_token_ttl_seconds = update.app.admin_token_ttl_seconds
         logging.getLogger().setLevel(getattr(logging, update.app.log_level, logging.INFO))
 
     if update.user is not None:
@@ -109,6 +127,18 @@ def update_config(
         config.active_connectors.text_utility = _validate_text_override(
             update.active_connectors.text_utility
         )
+
+    if update.chat is not None:
+        config.chat = ChatConfig(**update.chat.model_dump())
+
+    if update.scheduler is not None:
+        config.scheduler = SchedulerConfig(**update.scheduler.model_dump())
+
+    if update.observability is not None:
+        config.observability = ObservabilityConfig(**update.observability.model_dump())
+
+    if update.gui is not None:
+        config.gui.public_character_list = update.gui.public_character_list
 
     _save_config(save_path)
     return _to_response()
@@ -130,6 +160,10 @@ def patch_config(
         if patch.app.log_level is not None:
             config.app.log_level = patch.app.log_level
             logging.getLogger().setLevel(getattr(logging, patch.app.log_level, logging.INFO))
+        if patch.app.sentry_dsn is not None:
+            config.app.sentry_dsn = patch.app.sentry_dsn
+        if patch.app.admin_token_ttl_seconds is not None:
+            config.app.admin_token_ttl_seconds = patch.app.admin_token_ttl_seconds
 
     if patch.user is not None and patch.user.name is not None:
         config.user.name = patch.user.name
@@ -147,6 +181,16 @@ def patch_config(
             config.active_connectors.text_utility = _validate_text_override(
                 patch.active_connectors.text_utility
             )
+
+    # The remaining sections are plain scalars with no side effects, so a
+    # generic "apply the fields that were provided" pass is enough.
+    for section in ("chat", "scheduler", "observability", "gui"):
+        section_patch = getattr(patch, section)
+        if section_patch is None:
+            continue
+        target = getattr(config, section)
+        for field, value in section_patch.model_dump(exclude_none=True).items():
+            setattr(target, field, value)
 
     _save_config(save_path)
     return _to_response()
@@ -175,7 +219,10 @@ def update_gui_config(
     config.gui.custom_css = update.custom_css
     config.gui.custom_header_html = _strip_js(update.custom_header_html)
     config.gui.custom_footer_html = _strip_js(update.custom_footer_html)
-    config.gui.public_character_list = update.public_character_list
+    # Owned by the Configuration panel: only touch it when explicitly provided,
+    # so saving custom CSS here cannot silently re-publish the character list.
+    if update.public_character_list is not None:
+        config.gui.public_character_list = update.public_character_list
     _save_config(save_path)
     return GuiConfigResponse(
         custom_css=config.gui.custom_css,

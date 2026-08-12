@@ -17,6 +17,10 @@
   --header-h:        52px;
   --statusbar-h:     32px;
   font-size: 15px;
+  /* The UI is dark-only. Without this, the browser renders native widgets
+     (checkboxes, <select> popups, number spinners, scrollbars) in its light
+     theme, which shows up as white boxes on top of the dark surfaces. */
+  color-scheme: dark;
 }
 
 body {

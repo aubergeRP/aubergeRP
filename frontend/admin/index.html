@@ -271,30 +271,11 @@
     <section id="section-config" class="admin-section" style="display:none" aria-label="Configuration">
       <div class="section-header">
         <h1>Configuration</h1>
-        <button class="btn btn-primary" id="config-save-btn" title="Save app, user, and active connector settings.">Save</button>
+        <button class="btn btn-primary" id="config-save-btn" title="Save every setting on this page.">Save</button>
       </div>
       <div id="config-feedback"></div>
 
-      <div class="field-divider">App Settings</div>
-      <div class="field-row">
-        <label for="cfg-host" title="Network interface to bind the API server to.">Host</label>
-        <input type="text" id="cfg-host" autocomplete="off" placeholder="0.0.0.0">
-      </div>
-      <div class="field-row">
-        <label for="cfg-port" title="TCP port used by the API server.">Port</label>
-        <input type="number" id="cfg-port" min="1" max="65535" placeholder="8123">
-      </div>
-      <div class="field-row">
-        <label for="cfg-log-level" title="Controls how verbose server logs are.">Log Level</label>
-        <select id="cfg-log-level">
-          <option value="DEBUG">DEBUG</option>
-          <option value="INFO">INFO</option>
-          <option value="WARNING">WARNING</option>
-          <option value="ERROR">ERROR</option>
-        </select>
-      </div>
-
-      <div class="field-divider">User Settings</div>
+      <div class="field-divider">User</div>
       <div class="field-row">
         <label for="cfg-user-name" title="Name used for the {{user}} macro in prompts.">Display Name</label>
         <input type="text" id="cfg-user-name" autocomplete="off" placeholder="User">
@@ -314,9 +295,33 @@
         </select>
       </div>
 
+      <div class="field-divider">Access</div>
+      <div class="field-row field-row-check">
+        <label for="cfg-public-character-list" title="When unchecked, the public character list is empty: chats are unlisted and only reachable through their direct link or via Telegram.">
+          <input type="checkbox" id="cfg-public-character-list">
+          Public character list
+        </label>
+      </div>
+
+      <div class="field-divider">Chat Behaviour</div>
+      <div class="field-row field-row-check">
+        <label for="cfg-ooc-protection" title="Detect out-of-character messages and inject a guardrail so the character stays in role.">
+          <input type="checkbox" id="cfg-ooc-protection">
+          Out-of-character protection
+        </label>
+      </div>
+      <div class="field-row field-row-check">
+        <label for="cfg-image-autonomy" title="Let the character send an image on its own initiative, not only when asked. Requires an active image connector.">
+          <input type="checkbox" id="cfg-image-autonomy">
+          Character may send images on its own
+        </label>
+      </div>
+
       <details class="advanced-config-details">
-        <summary>Advanced settings — one model per task (optional)</summary>
+        <summary>Advanced settings</summary>
         <div class="advanced-config-body">
+
+          <div class="field-divider">One model per task (optional)</div>
           <p class="field-hint">
             Leave these on “Same as main model” unless you want a cheaper or faster
             model for background tasks.
@@ -333,16 +338,103 @@
               <option value="">Same as main model</option>
             </select>
           </div>
+
+          <div class="field-divider">Context &amp; memory</div>
+          <div class="field-row">
+            <label for="cfg-context-window" title="Estimated size of the model's context window, in tokens.">Context window (tokens)</label>
+            <input type="number" id="cfg-context-window" min="1" step="256" placeholder="4096">
+          </div>
+          <div class="field-row">
+            <label for="cfg-summarization-threshold" title="Summarize the conversation once this fraction of the context window is consumed.">Summarization threshold (0–1)</label>
+            <input type="number" id="cfg-summarization-threshold" min="0.05" max="1" step="0.05" placeholder="0.75">
+          </div>
+          <div class="field-row">
+            <label for="cfg-image-autonomy-cooldown" title="Number of replies without any image before the character may send another one on its own. 0 disables the guard.">Image autonomy cooldown (replies)</label>
+            <input type="number" id="cfg-image-autonomy-cooldown" min="0" step="1" placeholder="4">
+          </div>
+
+          <div class="field-divider">Server</div>
+          <p class="field-hint">Host and port only take effect after a restart.</p>
+          <div class="field-row">
+            <label for="cfg-host" title="Network interface to bind the API server to.">Host</label>
+            <input type="text" id="cfg-host" autocomplete="off" placeholder="0.0.0.0">
+          </div>
+          <div class="field-row">
+            <label for="cfg-port" title="TCP port used by the API server.">Port</label>
+            <input type="number" id="cfg-port" min="1" max="65535" placeholder="8123">
+          </div>
+          <div class="field-row">
+            <label for="cfg-log-level" title="Controls how verbose server logs are.">Log Level</label>
+            <select id="cfg-log-level">
+              <option value="DEBUG">DEBUG</option>
+              <option value="INFO">INFO</option>
+              <option value="WARNING">WARNING</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="cfg-sentry-dsn" title="Sentry DSN for error reporting. Leave empty to disable. Applied at restart.">Sentry DSN</label>
+            <input type="url" id="cfg-sentry-dsn" autocomplete="off" placeholder="(disabled)">
+          </div>
+          <div class="field-row">
+            <label for="cfg-admin-token-ttl" title="Lifetime of an admin session token, in seconds. Default 86400 (24 h).">Admin session lifetime (seconds)</label>
+            <input type="number" id="cfg-admin-token-ttl" min="1" step="60" placeholder="86400">
+          </div>
+          <div class="field-row">
+            <label for="cfg-data-dir" title="Where the database, media and connector files live. Read-only: change it in config.yaml or via AUBERGE_DATA_DIR, then restart.">Data directory (read-only)</label>
+            <input type="text" id="cfg-data-dir" readonly tabindex="-1">
+          </div>
+
+          <div class="field-divider">Background tasks</div>
+          <p class="field-hint">
+            Enabling or disabling a background task takes effect after a restart.
+            Interval changes apply after the current cycle ends.
+          </p>
+          <div class="field-row field-row-check">
+            <label for="cfg-scheduler-enabled" title="Periodically delete old generated images.">
+              <input type="checkbox" id="cfg-scheduler-enabled">
+              Automatic media cleanup
+            </label>
+          </div>
+          <div class="field-row">
+            <label for="cfg-scheduler-interval" title="How often the automatic media cleanup runs, in seconds. Default 86400 (24 h).">Cleanup interval (seconds)</label>
+            <input type="number" id="cfg-scheduler-interval" min="1" step="3600" placeholder="86400">
+          </div>
+          <div class="field-row">
+            <label for="cfg-scheduler-cleanup-days" title="Age threshold used by the automatic cleanup.">Automatic cleanup: delete images older than (days)</label>
+            <input type="number" id="cfg-scheduler-cleanup-days" min="1" step="1" placeholder="30">
+          </div>
+          <div class="field-row field-row-check">
+            <label for="cfg-health-check-enabled" title="Periodically test the active connectors so /api/health reflects a real liveness signal.">
+              <input type="checkbox" id="cfg-health-check-enabled">
+              Background connector health checks
+            </label>
+          </div>
+          <div class="field-row">
+            <label for="cfg-health-check-interval" title="How often the active connectors are tested, in seconds. Default 300 (5 min).">Health check interval (seconds)</label>
+            <input type="number" id="cfg-health-check-interval" min="1" step="60" placeholder="300">
+          </div>
+
+          <div class="field-divider">Observability</div>
+          <div class="field-row field-row-check">
+            <label for="cfg-metrics-enabled" title="Expose Prometheus metrics on /metrics. The endpoint is unauthenticated — keep it on a private network.">
+              <input type="checkbox" id="cfg-metrics-enabled">
+              Expose Prometheus metrics on /metrics
+            </label>
+          </div>
         </div>
       </details>
 
-      <div class="field-divider">Media Cleanup</div>
+      <div class="field-divider">Manual Media Cleanup</div>
+      <p class="field-hint">
+        One-shot action — runs immediately and is not saved with the settings
+        above.
+      </p>
       <div class="field-row">
         <label for="cfg-cleanup-days" title="Delete generated images older than this number of days.">Delete images older than (days)</label>
         <input type="number" id="cfg-cleanup-days" min="1" value="30">
       </div>
       <div class="field-row">
-        <label></label>
         <button class="btn btn-secondary" id="cleanup-images-btn" title="Run cleanup now using the threshold above.">Clean up images</button>
       </div>
       <div id="cleanup-feedback" style="margin-top:0.5rem;font-size:0.875rem;"></div>
@@ -355,12 +447,6 @@
         <button class="btn btn-primary" id="customize-save-btn" title="Save custom CSS and HTML snippets for the UI.">Save</button>
       </div>
       <div id="customize-feedback"></div>
-
-      <div class="field-divider">Visibility</div>
-      <div class="field-row">
-        <label for="customize-public-list" title="When unchecked, the public character list is empty: chats are unlisted and only reachable through their direct link or via Telegram.">Public character list</label>
-        <input type="checkbox" id="customize-public-list" checked>
-      </div>
 
       <div class="field-divider">Custom CSS</div>
       <div class="field-row" style="align-items:flex-start">

@@ -388,9 +388,10 @@
   font-weight: 600;
   color: var(--color-text-muted);
 }
-.field-row input[type="text"],
-.field-row input[type="number"],
-.field-row input[type="password"],
+/* Match every text-like input rather than enumerating types, so that url,
+   email, search, date… get the dark treatment too instead of falling back to
+   the browser's white default. */
+.field-row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .field-row select,
 .field-row textarea {
   background: var(--color-bg);
@@ -406,6 +407,13 @@
 .field-row select:focus,
 .field-row textarea:focus { outline: none; border-color: var(--color-accent); }
 .field-row textarea { resize: vertical; }
+/* The Configuration panel stacks many more rows than the character forms, so
+   it needs breathing room between them. */
+#section-config .field-row { margin-bottom: 0.7rem; }
+.field-row input[readonly] {
+  opacity: 0.6;
+  cursor: default;
+}
 .field-row .field-error {
   font-size: 0.78rem;
   color: var(--color-accent);
@@ -425,7 +433,9 @@
   color: var(--color-text);
   font-weight: 400;
 }
-.field-row-check input[type="checkbox"] {
+/* Not scoped to .field-row-check: checkboxes also appear in plain .field-row
+   (Configuration panel toggles) and need the same accent. */
+.field-row input[type="checkbox"] {
   width: 15px;
   height: 15px;
   accent-color: var(--color-accent);
@@ -1302,9 +1312,7 @@
   .char-card-desc { white-space: normal; }
 
   /* 16px inputs stop iOS Safari from zooming on focus */
-  .field-row input[type="text"],
-  .field-row input[type="number"],
-  .field-row input[type="password"],
+  .field-row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
   .field-row select,
   .field-row textarea { font-size: 16px; }
   .field-row input[type="checkbox"] { width: 20px; height: 20px; }
