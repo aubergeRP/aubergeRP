@@ -755,6 +755,23 @@ body {
     z-index: 15;
   }
   #sidebar.open ~ #sidebar-overlay { display: block; }
+
+  /* Touch targets in the drawer */
+  #header .hamburger {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sidebar-list li { padding: 0.65rem 1rem; min-height: 44px; }
+  .new-conv-btn { min-height: 44px; }
+}
+
+/* Hover-only affordances must stay visible on touch devices */
+@media (hover: none) {
+  .conv-delete { opacity: 1; }
+  .img-copy-btn { opacity: 0.85; }
 }
 
 @media (max-width: 767px) {
@@ -763,6 +780,20 @@ body {
   #char-header { padding: 0.5rem 0.75rem; }
   #message-list { padding: 0.75rem 0.5rem; }
   #statusbar { gap: 0.75rem; overflow-x: auto; white-space: nowrap; }
+
+  /* Header: keep the controls on one row on narrow screens */
+  #header { gap: 0.4rem; padding: 0 0.5rem; }
+  #header .logo { font-size: 1.05rem; min-width: 0; overflow: hidden; }
+  #header .logo span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #header .fullscreen-btn { display: none; }
+  #header .share-btn { font-size: 0; padding: 6px 9px; }
+  #header .share-btn::before { content: "🔗"; font-size: 0.9rem; }
+  #header .admin-link { padding: 4px 8px; }
+
+  /* Compact composer: buttons side by side, 16px input to avoid iOS zoom */
+  #msg-input { font-size: 16px; min-height: 44px; }
+  #input-actions { flex-direction: row; align-items: flex-end; }
+  #send-btn, #generate-image-btn { height: 44px; }
 }
 
 /* ─── Lightbox ───────────────────────────────────────────────────────────── */

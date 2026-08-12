@@ -81,7 +81,7 @@ test-cov:
 		--cov=aubergeRP --cov-report=xml:reports/coverage.xml --cov-report=term-missing
 
 test-e2e:
-	cd tests/e2e && node --test chat-streaming.test.mjs generate-image-button.test.mjs mobile-scroll.test.mjs markdown-rendering.test.mjs admin-mobile.test.mjs
+	cd tests/e2e && node --test chat-streaming.test.mjs generate-image-button.test.mjs mobile-scroll.test.mjs markdown-rendering.test.mjs admin-mobile.test.mjs chat-mobile.test.mjs
 
 lint:
 	python -m ruff check aubergeRP/ tests/
