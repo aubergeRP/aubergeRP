@@ -18,11 +18,13 @@ from aubergeRP.services.chat_service import (
     ChatService,
     ImageMarkerParser,
     _format_user_message_for_llm,
+    autonomy_allowed,
     build_prompt,
 )
 from aubergeRP.services.conversation_service import ConversationService
 from aubergeRP.services.media_service import MediaService
 from aubergeRP.services.observability_service import get_registry
+from aubergeRP.services.prompt_service import get_prompt
 from aubergeRP.services.statistics_service import StatisticsService
 
 # ---------------------------------------------------------------------------
@@ -328,6 +330,76 @@ def test_build_prompt_no_system_when_empty():
     conv = _conv(char)
     msgs = build_prompt(conv, char)
     assert any(m["role"] == "system" for m in msgs)
+
+
+def _assistant(images: list[str] | None = None):
+    import uuid
+
+    from aubergeRP.models.conversation import Message
+    return Message(
+        id=str(uuid.uuid4()), role="assistant", content="…",
+        images=images or [], timestamp=_now(),
+    )
+
+
+# --- image instruction / autonomy ---
+
+@pytest.mark.parametrize("use_tools", [False, True])
+def test_build_prompt_no_image_instruction_without_image_connector(use_tools):
+    char = _char()
+    conv = _conv(char)
+    msgs = build_prompt(conv, char, use_tool_calling=use_tools, image_enabled=False)
+    system = msgs[0]["content"]
+    assert "[IMG:" not in system
+    assert "generate_image" not in system
+
+
+def test_build_prompt_strict_image_instruction_by_default():
+    char = _char()
+    conv = _conv(char)
+    system = build_prompt(conv, char)[0]["content"]
+    assert get_prompt("image_marker_instruction") in system
+    assert get_prompt("image_marker_instruction_autonomous") not in system
+
+
+def test_build_prompt_autonomous_marker_instruction():
+    char = _char()
+    conv = _conv(char)
+    system = build_prompt(conv, char, image_autonomy=True)[0]["content"]
+    assert get_prompt("image_marker_instruction_autonomous") in system
+
+
+def test_build_prompt_autonomous_tool_instruction():
+    char = _char()
+    conv = _conv(char)
+    system = build_prompt(
+        conv, char, use_tool_calling=True, image_autonomy=True
+    )[0]["content"]
+    assert get_prompt("image_tool_instruction_autonomous") in system
+
+
+def test_autonomy_allowed_on_empty_conversation():
+    char = _char()
+    assert autonomy_allowed(_conv(char), 4) is True
+
+
+def test_autonomy_blocked_when_last_reply_had_an_image():
+    char = _char()
+    conv = _conv(char, messages=[_assistant(["/img/a.png"])])
+    assert autonomy_allowed(conv, 4) is False
+
+
+def test_autonomy_allowed_once_cooldown_elapsed():
+    char = _char()
+    conv = _conv(char, messages=[_assistant(["/img/a.png"]), _assistant(), _assistant()])
+    assert autonomy_allowed(conv, 2) is True
+    assert autonomy_allowed(conv, 4) is False
+
+
+def test_autonomy_allowed_when_cooldown_disabled():
+    char = _char()
+    conv = _conv(char, messages=[_assistant(["/img/a.png"])])
+    assert autonomy_allowed(conv, 0) is True
 
 
 def test_build_prompt_includes_history():

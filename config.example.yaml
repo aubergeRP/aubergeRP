@@ -54,6 +54,12 @@ chat:
   summarization_threshold: 0.75
   # Inject a guardrail when out-of-character jailbreak attempts are detected.
   ooc_protection: true
+  # Let the character send an image on its own initiative (not only when the
+  # user asks for one). Requires an active image connector.
+  image_autonomy: true
+  # Assistant replies that must pass without any image before the character may
+  # send another one on its own. 0 disables the guard.
+  image_autonomy_cooldown: 4
 
 # Background media-cleanup scheduler (default: disabled)
 scheduler:
