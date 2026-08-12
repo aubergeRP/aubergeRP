@@ -65,6 +65,11 @@ _TG_MAX_NAME_LEN = 64
 _TG_MAX_DESCRIPTION_LEN = 512
 _TG_MAX_SHORT_DESCRIPTION_LEN = 120
 
+# Sent when generation failed after ChatService exhausted its retries.  Kept
+# terse and in-character: an error bubble would break immersion, but staying
+# fully silent leaves the user waiting for a reply that never comes.
+GENERATION_FAILURE_MESSAGE = "Sorry, say again?"
+
 
 def _png_to_jpeg(raw: bytes) -> bytes:
     """Convert image bytes to a JPEG — Telegram only accepts .JPG profile photos."""
@@ -612,8 +617,17 @@ class TelegramRuntimeManager:
                     logger.exception("Telegram bot %s: generation failed for conv %s", bot_id, conv_id)
                     record_error("llm", f"telegram generation failed: {exc}",
                                  bot_id=bot_id, conversation_id=conv_id)
-                    # Stay silent: ChatService already retried with backoff and
-                    # an error bubble would break immersion.
+                    # ChatService already retried with backoff.  Acknowledge in
+                    # character rather than showing an error bubble.
+                    try:
+                        await message.answer(GENERATION_FAILURE_MESSAGE)
+                    except Exception as send_exc:
+                        get_registry().mark_delivery_failure(bot_id)
+                        record_error(
+                            "telegram_delivery",
+                            f"failure notice send failed: {send_exc}",
+                            bot_id=bot_id, conversation_id=conv_id,
+                        )
                     return
 
             # Send generated images first, then text reply.

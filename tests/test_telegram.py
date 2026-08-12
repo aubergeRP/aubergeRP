@@ -17,6 +17,7 @@ from aubergeRP.services.telegram_bot_service import (
     TelegramBotUpdate,
 )
 from aubergeRP.services.telegram_runtime_manager import (
+    GENERATION_FAILURE_MESSAGE,
     TelegramRuntimeManager,
     chat_action,
     split_message,
@@ -1071,3 +1072,35 @@ async def test_chat_action_failure_is_ignored():
 
     async with chat_action(bot, "42", "upload_photo"):
         await asyncio.sleep(0)
+
+
+# ── Generation failure notice ────────────────────────────────────────────────
+
+
+def _on_message_handler(mgr, dp, bot):
+    mgr._register_handlers(dp, "bot1", "char1", bot)
+    return dp.message.handlers[-1].callback
+
+
+@pytest.mark.asyncio
+async def test_generation_failure_sends_laconic_reply(tmp_path):
+    from aiogram import Dispatcher
+
+    mgr = TelegramRuntimeManager(data_dir=str(tmp_path))
+    handler = _on_message_handler(mgr, Dispatcher(), MagicMock())
+
+    mgr._get_or_create_session = MagicMock(return_value=("conv1", True))
+    mgr._generate = AsyncMock(side_effect=RuntimeError("llm down"))
+
+    message = MagicMock()
+    message.text = "hello"
+    message.caption = None
+    message.photo = None
+    message.chat = SimpleNamespace(id=42, type="private")
+    message.from_user = SimpleNamespace(id=7)
+    message.answer = AsyncMock()
+
+    with patch("aubergeRP.services.telegram_runtime_manager.chat_action"):
+        await handler(message)
+
+    message.answer.assert_awaited_once_with(GENERATION_FAILURE_MESSAGE)
