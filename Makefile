@@ -25,7 +25,7 @@ BLUE   := \033[1;34m
 RED    := \033[1;31m
 RESET  := \033[0m
 
-.PHONY: run test test-cov test-e2e lint lint-fix doc help \
+.PHONY: run test test-cov test-e2e lint lint-fix doc tag help \
         docker stop clean logs \
 	_compose-up _localai-install \
 	$(AVAILABLE_PROFILES)
@@ -42,6 +42,10 @@ help:
 	@printf "    make lint             Run ruff + mypy\n"
 	@printf "    make lint-fix         Fix linting issues automatically (ruff --fix)\n"
 	@printf "    make doc              Regenerate docs/03-backend-api.md from source\n"
+	@printf "\n"
+	@printf "  $(YELLOW)Release$(RESET)\n"
+	@printf "    make tag v=1.2.3      Bump pyproject, commit, tag v1.2.3 and push\n"
+	@printf "                          (triggers the GHCR image build + GitHub release)\n"
 	@printf "\n"
 	@printf "  $(YELLOW)Docker stack$(RESET)\n"
 	@printf "    make docker           Start auberge-app only\n"
@@ -88,6 +92,36 @@ lint-fix:
 
 doc:
 	python scripts/generate_api_docs.py
+
+# ─── Release: make tag v=1.2.3 ───────────────────────────────────────────────
+# Bumps the version in pyproject.toml, commits, tags v<version> and pushes.
+# Pushing the tag triggers .github/workflows/docker-publish.yml, which builds
+# the GHCR image and opens the matching GitHub release.
+tag:
+	@if [ -z "$(v)" ]; then \
+		printf "$(RED)Error:$(RESET) missing version. Use: make tag v=1.2.3\n"; exit 1; \
+	fi
+	@echo "$(v)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$' || { \
+		printf "$(RED)Error:$(RESET) '$(v)' is not a valid semver (e.g. 1.2.3 or 1.2.3-rc1).\n"; exit 1; }
+	@[ -z "$$(git status --porcelain)" ] || { \
+		printf "$(RED)Error:$(RESET) working tree is not clean — commit or stash first.\n"; exit 1; }
+	@[ "$$(git rev-parse --abbrev-ref HEAD)" = "main" ] || { \
+		printf "$(RED)Error:$(RESET) releases are tagged from main only.\n"; exit 1; }
+	@git rev-parse -q --verify "refs/tags/v$(v)" >/dev/null && { \
+		printf "$(RED)Error:$(RESET) tag v$(v) already exists.\n"; exit 1; } || true
+	@printf "  $(BLUE)→$(RESET) Bumping pyproject.toml to $(v)...\n"
+	@sed -i '0,/^version = ".*"$$/s//version = "$(v)"/' pyproject.toml
+	@grep -q '^version = "$(v)"$$' pyproject.toml || { \
+		printf "$(RED)Error:$(RESET) failed to update version in pyproject.toml.\n"; \
+		git checkout -- pyproject.toml; exit 1; }
+	@git add pyproject.toml
+	@git commit -m "chore(release): v$(v)"
+	@git tag -a "v$(v)" -m "v$(v)"
+	@printf "  $(BLUE)→$(RESET) Pushing main and tag v$(v)...\n"
+	@git push origin main
+	@git push origin "v$(v)"
+	@printf "  $(GREEN)✓$(RESET) v$(v) pushed — watch the build:\n"
+	@printf "    https://github.com/aubergeRP/aubergeRP/actions\n"
 
 # ─── Docker: make docker [gpu=<profile>] ─────────────────────────────────────
 docker:

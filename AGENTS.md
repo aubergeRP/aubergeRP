@@ -98,6 +98,7 @@ make run          # dev server, hot-reload, http://localhost:8123
 make lint         # ruff check + mypy
 make lint-fix     # ruff --fix --unsafe-fixes
 make doc          # regenerate docs/03-backend-api.md from source
+make tag v=1.2.3  # bump pyproject version, commit, tag and push (triggers release)
 make docker       # app-only container stack (see `make help` for GPU profiles)
 ```
 
