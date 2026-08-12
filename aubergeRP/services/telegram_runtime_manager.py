@@ -612,7 +612,8 @@ class TelegramRuntimeManager:
                     logger.exception("Telegram bot %s: generation failed for conv %s", bot_id, conv_id)
                     record_error("llm", f"telegram generation failed: {exc}",
                                  bot_id=bot_id, conversation_id=conv_id)
-                    await message.answer("⚠️ Generation failed. Please try again.")
+                    # Stay silent: ChatService already retried with backoff and
+                    # an error bubble would break immersion.
                     return
 
             # Send generated images first, then text reply.

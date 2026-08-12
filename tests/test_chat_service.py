@@ -1453,3 +1453,96 @@ async def test_stream_non_empty_response_no_warning(tmp_path):
     conv = conv_svc.create_conversation(char.id)
     events = await collect(svc.stream_chat(conv.id, "Hi"))
     assert not any(e["type"] == "warning" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# Automatic retry with backoff
+# ---------------------------------------------------------------------------
+
+class _FlakyText:
+    """Fails the first *fail_times* calls, then streams normally."""
+    connector_type = "text"
+
+    def __init__(self, fail_times: int, token: str = "Hello") -> None:
+        self._fail_times = fail_times
+        self._token = token
+        self.calls = 0
+
+    async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
+        self.calls += 1
+        if self.calls <= self._fail_times:
+            raise RuntimeError("connection refused")
+        yield self._token
+
+    async def test_connection(self) -> dict:
+        return {}
+
+
+@pytest.fixture
+def retry_delays(monkeypatch):
+    from aubergeRP.services import chat_service
+    sleeps: list[float] = []
+
+    async def _sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(chat_service, "GENERATION_RETRY_DELAYS", (5.0, 20.0, 60.0, 120.0))
+    monkeypatch.setattr(chat_service.asyncio, "sleep", _sleep)
+    return sleeps
+
+
+async def test_generate_reply_retries_until_success(tmp_path, retry_delays):
+    text = _FlakyText(fail_times=2)
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    result = await svc.generate_reply(conv.id, "Hi")
+
+    assert result.text == "Hello"
+    assert text.calls == 3
+    assert retry_delays == [5.0, 20.0]
+    # The user turn is stored exactly once despite the retries.
+    reloaded = conv_svc.get_conversation(conv.id)
+    assert [m.role for m in reloaded.messages] == ["user", "assistant"]
+
+
+async def test_generate_reply_gives_up_after_five_attempts(tmp_path, retry_delays):
+    text = _FlakyText(fail_times=99)
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    assert text.calls == 5
+    assert retry_delays == [5.0, 20.0, 60.0, 120.0]
+    assert conv_svc.get_conversation(conv.id).messages == []
+
+
+async def test_stream_chat_retries_and_emits_retry_events(tmp_path, retry_delays):
+    text = _FlakyText(fail_times=1)
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    events = await collect(svc.stream_chat(conv.id, "Hi"))
+
+    assert not any(e["type"] == "error" for e in events)
+    assert [e for e in events if e["type"] == "retry"] == [
+        {"type": "retry", "attempt": 1, "delay": 5.0}
+    ]
+    assert any(e["type"] == "done" for e in events)
+
+
+async def test_no_retry_when_connector_missing(tmp_path, retry_delays):
+    """Configuration errors surface immediately instead of being retried."""
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=None)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    events = await collect(svc.stream_chat(conv.id, "Hi"))
+
+    assert events[0]["type"] == "error"
+    assert retry_delays == []

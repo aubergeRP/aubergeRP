@@ -34,3 +34,14 @@ def reset_config_singleton():
     yield
     reset_config()
     reset_engine()
+
+
+@pytest.fixture(autouse=True)
+def no_generation_retry_delays(monkeypatch):
+    """Disable ChatService's automatic retry backoff so tests stay fast.
+
+    Tests that exercise the retry loop re-enable it explicitly.
+    """
+    from aubergeRP.services import chat_service
+    monkeypatch.setattr(chat_service, "GENERATION_RETRY_DELAYS", ())
+    yield

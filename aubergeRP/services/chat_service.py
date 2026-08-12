@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import suppress
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -36,6 +37,11 @@ IMAGE_FAILURE_MESSAGE = (
     "Image generation failed. "
     "See Admin → Operations → Recent errors for details."
 )
+
+# Automatic retry schedule (seconds) applied when a generation fails before any
+# content reached the user. Five attempts in total: the initial one plus four
+# spaced retries.
+GENERATION_RETRY_DELAYS: tuple[float, ...] = (5.0, 20.0, 60.0, 120.0)
 
 
 @dataclass(slots=True)
@@ -555,7 +561,9 @@ class ChatService:
     ) -> GenerationResult:
         run_options = options or GenerationOptions()
         done_event: dict[str, Any] | None = None
-        async for event in self._generate_events(conversation_id, content, run_options):
+        async for event in self._generate_events_with_retry(
+            conversation_id, content, run_options
+        ):
             if event["type"] == "error":
                 raise ChatGenerationError(str(event.get("detail", "Chat generation failed")))
             if event["type"] == "done":
@@ -578,15 +586,65 @@ class ChatService:
             user_name=user_name,
             retry_deduplicate_user_message=True,
         )
-        async for event in self._generate_events(conversation_id, content, options):
+        async for event in self._generate_events_with_retry(
+            conversation_id, content, options
+        ):
             yield event
+
+    async def _generate_events_with_retry(
+        self,
+        conversation_id: str,
+        content: str,
+        options: GenerationOptions,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Run a generation, retrying with backoff when it fails silently.
+
+        A retry is only attempted while nothing has been emitted to the caller
+        yet: once tokens or images have been streamed, the partial reply is the
+        user-visible state and restarting would duplicate it.
+        """
+        delays = GENERATION_RETRY_DELAYS
+        for attempt in range(len(delays) + 1):
+            is_last = attempt == len(delays)
+            emitted_content = False
+            failed = False
+            async with aclosing(
+                self._generate_events(conversation_id, content, options)
+            ) as events:
+                async for event in events:
+                    if (
+                        event["type"] == "error"
+                        and event.get("retryable")
+                        and not emitted_content
+                        and not is_last
+                    ):
+                        failed = True
+                        break
+                    if event["type"] in ("token", "image_start", "image_complete"):
+                        emitted_content = True
+                    yield event
+            if not failed:
+                return
+            delay = delays[attempt]
+            logger.warning(
+                "Chat generation failed for conversation %s, retrying in %.0fs "
+                "(attempt %d/%d)",
+                conversation_id,
+                delay,
+                attempt + 1,
+                len(delays) + 1,
+            )
+            # Doubles as an SSE keep-alive while waiting; unknown to the UI,
+            # which simply ignores it.
+            yield {"type": "retry", "attempt": attempt + 1, "delay": delay}
+            await asyncio.sleep(delay)
 
     async def _generate_events(
         self,
         conversation_id: str,
         content: str,
         options: GenerationOptions,
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         user_name = options.user_name
         appended_user_message_id: str | None = None
         try:
@@ -791,6 +849,9 @@ class ChatService:
                     "An error occurred while generating a response. "
                     "Please check the server logs for details."
                 ),
+                # Provider/network failures are worth retrying; configuration
+                # errors yielded earlier are not.
+                "retryable": True,
             }
         finally:
             if self._statistics_service is not None:
