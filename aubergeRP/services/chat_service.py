@@ -41,7 +41,7 @@ IMAGE_FAILURE_MESSAGE = (
 # Automatic retry schedule (seconds) applied when a generation fails before any
 # content reached the user. Five attempts in total: the initial one plus four
 # spaced retries.
-GENERATION_RETRY_DELAYS: tuple[float, ...] = (5.0, 20.0, 60.0, 120.0)
+GENERATION_RETRY_DELAYS: tuple[float, ...] = (1.0, 5.0, 20.0, 60.0)
 
 
 @dataclass(slots=True)
