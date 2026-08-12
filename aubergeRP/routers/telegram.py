@@ -189,8 +189,15 @@ async def test_bot(
     # Back-compat safety net: bots created before the runtime was started on
     # create/update may be enabled yet never launched — no webhook registered,
     # no profile sync.  A successful test connection starts them.
-    if not error and result.enabled and not _is_running(bot_id):
-        await _start_bot(svc, result)
+    if not error and result.enabled:
+        if not _is_running(bot_id):
+            await _start_bot(svc, result)
+        else:
+            # Already running: re-apply the profile so a setup that failed
+            # halfway (missing description or profile photo) is repaired.
+            mgr = _get_manager()
+            if mgr is not None:
+                await mgr.resync_bot_profile(bot_id, result.character_id)
     return result
 
 

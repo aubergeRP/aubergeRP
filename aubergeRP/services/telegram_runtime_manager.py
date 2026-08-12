@@ -27,17 +27,22 @@ Media handling
 
 Bot profile sync
 ----------------
-When a bot starts, its Telegram profile (name, description, short description
+When a bot starts — and again on the admin "test connection" action, which acts
+as a repair path — its Telegram profile (name, description, short description
 and profile photo) is synchronised from the bound character card.  Text fields
-are only pushed when they differ from what Telegram already holds; the photo is
-only re-uploaded when the avatar changed (tracked by a hash marker file).
-Failures are logged and never prevent the bot from running.
+are only pushed when they differ from what Telegram already holds, and are read
+back once to make sure the change stuck.  The descriptions are LLM-rewritten to
+fit Telegram's length limits (cached per card revision); when the character has
+no avatar at all, one is generated from the card as a profile picture.  The
+photo is only re-uploaded when the avatar changed (tracked by a hash marker
+file).  Failures are logged and never prevent the bot from running.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -69,6 +74,28 @@ _TG_MAX_SHORT_DESCRIPTION_LEN = 120
 # terse and in-character: an error bubble would break immersion, but staying
 # fully silent leaves the user waiting for a reply that never comes.
 GENERATION_FAILURE_MESSAGE = "Sorry, say again?"
+
+
+def _truncate(text: str, max_len: int) -> str:
+    """Trim *text* to *max_len* characters, preferring a word boundary."""
+    text = text.strip()
+    if len(text) <= max_len:
+        return text
+    cut = text[: max_len - 1]  # leave room for the ellipsis
+    idx = cut.rfind(" ")
+    if idx >= max_len // 2:
+        cut = cut[:idx]
+    return cut.rstrip(" ,;:-") + "…"
+
+
+def _parse_json_object(raw: str) -> dict[str, object]:
+    """Extract the first JSON object from a model answer (code fences tolerated)."""
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end <= start:
+        return {}
+    parsed = json.loads(raw[start : end + 1])
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _png_to_jpeg(raw: bytes) -> bytes:
@@ -368,6 +395,17 @@ class TelegramRuntimeManager:
 
     # ── Bot profile sync ─────────────────────────────────────────────────────
 
+    async def resync_bot_profile(self, bot_id: str, character_id: str) -> None:
+        """Re-run the profile sync for an already running bot (repair path).
+
+        Used by the admin "test connection" action so a partially applied setup
+        (missing description or profile photo) can be fixed without restarting.
+        """
+        bot = self._bots.get(bot_id)
+        if bot is None:
+            return
+        await self._sync_bot_profile(bot_id, bot, character_id)
+
     async def _sync_bot_profile(self, bot_id: str, bot: Bot, character_id: str) -> None:
         """Push the character's name / description / avatar to the bot profile.
 
@@ -382,10 +420,7 @@ class TelegramRuntimeManager:
             return
 
         name = char.data.name.strip()[:_TG_MAX_NAME_LEN]
-        description = char.data.description.strip()[:_TG_MAX_DESCRIPTION_LEN]
-        short_description = (
-            char.data.creator_notes.strip() or char.data.description.strip()
-        )[:_TG_MAX_SHORT_DESCRIPTION_LEN]
+        description, short_description = await self._profile_texts(character_id, char)
 
         await self._set_if_changed(bot_id, "name", bot.get_my_name, bot.set_my_name, name)
         await self._set_if_changed(
@@ -401,7 +436,7 @@ class TelegramRuntimeManager:
 
         avatar_path = None
         with contextlib.suppress(Exception):
-            avatar_path = CharacterService(data_dir=self._data_dir).get_avatar_path(character_id)
+            avatar_path = await self._ensure_avatar(bot_id, character_id, char)
         if avatar_path is not None:
             await self._sync_profile_photo(bot_id, bot, avatar_path)
 
@@ -413,18 +448,175 @@ class TelegramRuntimeManager:
         setter: object,
         value: str,
     ) -> None:
-        """Call *setter* with *value* only when Telegram holds a different value."""
+        """Ensure Telegram holds *value* for *field*, retrying once on mismatch.
+
+        The read-back retry repairs a setup where a previous call silently failed
+        (flood wait, transient error) and left the field empty or stale.
+        """
         if not value:
             return
-        try:
-            current = await getter()  # type: ignore[operator]
-            if getattr(current, field, None) == value:
+        applied = False
+        for _ in range(2):
+            try:
+                current = await getter()  # type: ignore[operator]
+                if getattr(current, field, None) == value:
+                    if applied:
+                        logger.info("Telegram bot %s: profile %s updated", bot_id, field)
+                    return
+                await setter(value)  # type: ignore[operator]
+                applied = True
+            except Exception as exc:
+                logger.warning("Telegram bot %s: failed to sync %s: %s", bot_id, field, exc)
                 return
-            await setter(value)  # type: ignore[operator]
+        logger.warning("Telegram bot %s: profile %s still not applied", bot_id, field)
+
+    async def _profile_texts(self, character_id: str, char: object) -> tuple[str, str]:
+        """Return (description, short_description) fitting Telegram's limits.
+
+        The card description is usually far too long (and written for the LLM,
+        not for humans), so an LLM rewrite is generated once per card revision
+        and cached on disk.  Any failure falls back to a truncated card text.
+        """
+        data = char.data  # type: ignore[attr-defined]
+        raw_description = data.description.strip()
+        raw_notes = data.creator_notes.strip()
+        fallback = (
+            _truncate(raw_description, _TG_MAX_DESCRIPTION_LEN),
+            _truncate(raw_notes or raw_description, _TG_MAX_SHORT_DESCRIPTION_LEN),
+        )
+        if not raw_description and not raw_notes:
+            return fallback
+
+        digest = hashlib.sha256(
+            f"{data.name}\x00{raw_description}\x00{raw_notes}".encode()
+        ).hexdigest()
+        cache = self._data_dir / "telegram_profile" / f"{character_id}.bio.json"
+        with contextlib.suppress(Exception):
+            cached = json.loads(cache.read_text(encoding="utf-8"))
+            if cached.get("digest") == digest:
+                return cached["description"], cached["short_description"]
+
+        try:
+            from ..config import get_config
+            from ..connectors.manager import ConnectorManager
+            from .prompt_service import get_prompt
+
+            connector = ConnectorManager(
+                data_dir=self._data_dir, config=get_config()
+            ).get_text_connector("text_utility")
+            if connector is None:
+                return fallback
+            user_content = get_prompt("telegram_profile_bio").format(
+                char_name=data.name,
+                char_description=raw_description or "(none)",
+                char_creator_notes=raw_notes or "(none)",
+                max_description=_TG_MAX_DESCRIPTION_LEN,
+                max_short_description=_TG_MAX_SHORT_DESCRIPTION_LEN,
+            )
+            tokens: list[str] = []
+            async for chunk in connector.stream_chat_completion(
+                [{"role": "user", "content": user_content}],
+                max_tokens=1024,
+                temperature=0.7,
+            ):
+                tokens.append(chunk)
+            payload = _parse_json_object("".join(tokens))
+            description = _truncate(
+                str(payload.get("description", "")).strip(), _TG_MAX_DESCRIPTION_LEN
+            )
+            short_description = _truncate(
+                str(payload.get("short_description", "")).strip().replace("\n", " "),
+                _TG_MAX_SHORT_DESCRIPTION_LEN,
+            )
         except Exception as exc:
-            logger.warning("Telegram bot %s: failed to sync %s: %s", bot_id, field, exc)
-            return
-        logger.info("Telegram bot %s: profile %s updated", bot_id, field)
+            logger.warning("Telegram: profile bio generation failed for %s: %s", character_id, exc)
+            return fallback
+
+        if not description or not short_description:
+            return fallback
+
+        with contextlib.suppress(Exception):
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps({
+                    "digest": digest,
+                    "description": description,
+                    "short_description": short_description,
+                }),
+                encoding="utf-8",
+            )
+            os.rename(tmp, cache)
+        return description, short_description
+
+    async def _ensure_avatar(self, bot_id: str, character_id: str, char: object) -> Path | None:
+        """Return the character avatar, generating one when it is missing.
+
+        A bot without a profile photo cannot be repaired from the admin panel
+        when the character card has no avatar, so one is generated from the
+        card description, framed as a profile picture.
+        """
+        from .character_service import CharacterService
+
+        char_svc = CharacterService(data_dir=self._data_dir)
+        existing = char_svc.get_avatar_path(character_id)
+        if existing is not None:
+            return existing
+
+        data = char.data  # type: ignore[attr-defined]
+        try:
+            from ..config import get_config
+            from ..connectors.manager import ConnectorManager
+            from .prompt_service import get_prompt
+
+            manager = ConnectorManager(data_dir=self._data_dir, config=get_config())
+            img_connector = manager.get_active_image_connector()
+            if img_connector is None:
+                return None
+
+            prompt = ""
+            text_connector = manager.get_text_connector("text_utility")
+            if text_connector is not None:
+                template = get_prompt("telegram_profile_image").format(
+                    char_name=data.name,
+                    char_description=(data.description or "")[:600],
+                )
+                tokens: list[str] = []
+                async for chunk in text_connector.stream_chat_completion(
+                    [{"role": "user", "content": template}],
+                    max_tokens=1024,
+                    temperature=0.7,
+                ):
+                    tokens.append(chunk)
+                prompt = "".join(tokens).strip()
+            if not prompt:
+                desc = (data.description or "")[:300]
+                prompt = (
+                    f"Head and shoulders portrait of {data.name}. {desc} "
+                    "Centered profile picture, soft diffused light, sharp focus."
+                ).strip()
+
+            auberge = data.extensions.get("aubergerp", {})
+            prefix = auberge.get("image_prompt_prefix", "")
+            negative = auberge.get("negative_prompt", "")
+            full_prompt = f"{prefix} {prompt}".strip() if prefix else prompt
+
+            img_bytes: bytes | None = None
+            async for event in img_connector.generate_image_with_progress(
+                full_prompt, negative_prompt=negative
+            ):
+                if event["type"] == "complete":
+                    img_bytes = event["bytes"]
+            if not img_bytes:
+                logger.warning("Telegram bot %s: avatar generation returned no image", bot_id)
+                return None
+            char_svc.save_avatar(character_id, img_bytes)
+        except Exception as exc:
+            logger.warning("Telegram bot %s: avatar generation failed: %s", bot_id, exc)
+            return None
+
+        logger.info("Telegram bot %s: generated a profile avatar for %s", bot_id, character_id)
+        return char_svc.get_avatar_path(character_id)
 
     async def _sync_profile_photo(self, bot_id: str, bot: Bot, avatar_path: Path) -> None:
         """Upload the character avatar as the bot's profile photo (once per change)."""

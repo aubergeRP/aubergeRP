@@ -122,6 +122,24 @@ PROMPT_META: dict[str, dict[str, str]] = {
             "{recent_exchanges}, and {raw_keywords} placeholders."
         ),
     },
+    "telegram_profile_bio": {
+        "label": "Telegram Profile Bio",
+        "description": (
+            "Used when synchronising a Telegram bot profile: turns the character card into "
+            "the bot description and short description, within Telegram's length limits. "
+            "Supports {char_name}, {char_description}, {char_creator_notes}, "
+            "{max_description} and {max_short_description} placeholders; must return JSON "
+            "with description/short_description keys."
+        ),
+    },
+    "telegram_profile_image": {
+        "label": "Telegram Profile Image Prompt",
+        "description": (
+            "Used to build the image-generation prompt for a character avatar when a "
+            "Telegram bot has no profile photo yet. Supports {char_name} and "
+            "{char_description} placeholders."
+        ),
+    },
     "proactive_event": {
         "label": "Proactive Event Injection",
         "description": (

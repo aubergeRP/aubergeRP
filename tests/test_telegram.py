@@ -764,14 +764,27 @@ def test_webhook_endpoint_rejects_invalid_payload(client):
 
 
 def _profile_bot_mock() -> MagicMock:
-    """A Bot mock whose getters report an empty/mismatching profile."""
+    """A Bot mock whose getters report an empty profile, then what was set.
+
+    The setters update the state the getters report, so the read-back
+    verification performed by the sync sees the value it just pushed.
+    """
     bot = MagicMock()
-    bot.get_my_name = AsyncMock(return_value=SimpleNamespace(name=""))
-    bot.get_my_description = AsyncMock(return_value=SimpleNamespace(description=""))
-    bot.get_my_short_description = AsyncMock(return_value=SimpleNamespace(short_description=""))
-    bot.set_my_name = AsyncMock()
-    bot.set_my_description = AsyncMock()
-    bot.set_my_short_description = AsyncMock()
+    state = {"name": "", "description": "", "short_description": ""}
+    bot.profile_state = state
+
+    def _getter(field: str) -> AsyncMock:
+        return AsyncMock(side_effect=lambda: SimpleNamespace(**{field: state[field]}))
+
+    def _setter(field: str) -> AsyncMock:
+        return AsyncMock(side_effect=lambda value: state.__setitem__(field, value))
+
+    bot.get_my_name = _getter("name")
+    bot.get_my_description = _getter("description")
+    bot.get_my_short_description = _getter("short_description")
+    bot.set_my_name = _setter("name")
+    bot.set_my_description = _setter("description")
+    bot.set_my_short_description = _setter("short_description")
     bot.set_my_profile_photo = AsyncMock()
     return bot
 
@@ -861,6 +874,113 @@ async def test_profile_photo_uploaded_once_per_avatar(tmp_path):
         _write_avatar(tmp_path, char_id, color="blue")
         await mgr._sync_bot_profile("bot-1", bot, char_id)
         assert bot.set_my_profile_photo.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_profile_sync_retries_when_field_did_not_stick(tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+    # A setter that silently does nothing (e.g. swallowed flood wait).
+    bot.set_my_name = AsyncMock()
+
+    await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    assert bot.set_my_name.await_count == 2
+
+
+def _fake_text_connector(answer: str) -> MagicMock:
+    conn = MagicMock()
+
+    async def _stream(*_args, **_kwargs):
+        yield answer
+
+    conn.stream_chat_completion = _stream
+    return conn
+
+
+@pytest.mark.asyncio
+async def test_profile_bio_generated_and_cached(tmp_path):
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    manager = MagicMock()
+    manager.get_text_connector.return_value = _fake_text_connector(
+        '{"description": "I am Alice.", "short_description": "Alice, innkeeper."}'
+    )
+    manager.get_active_image_connector.return_value = None
+    with patch("aubergeRP.connectors.manager.ConnectorManager", return_value=manager):
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+        assert bot.profile_state["description"] == "I am Alice."
+        assert bot.profile_state["short_description"] == "Alice, innkeeper."
+
+        # Second sync reuses the cache — no further LLM call.
+        manager.get_text_connector.reset_mock()
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+        manager.get_text_connector.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_profile_bio_falls_back_to_truncated_card(tmp_path):
+    from aubergeRP.models.character import CharacterData
+    from aubergeRP.services.character_service import CharacterService
+
+    _make_character(tmp_path)
+    svc = CharacterService(data_dir=tmp_path / "data")
+    long_desc = "word " * 400
+    char_id = svc.create_character(CharacterData(name="Bob", description=long_desc)).id
+
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    manager = MagicMock()
+    manager.get_text_connector.return_value = None
+    manager.get_active_image_connector.return_value = None
+    with patch("aubergeRP.connectors.manager.ConnectorManager", return_value=manager):
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    assert 0 < len(bot.profile_state["description"]) <= 512
+    assert 0 < len(bot.profile_state["short_description"]) <= 120
+
+
+@pytest.mark.asyncio
+async def test_missing_avatar_is_generated_from_character(tmp_path):
+    import io
+    import sys
+
+    from PIL import Image
+
+    from aubergeRP.services.character_service import CharacterService
+
+    char_id = _make_character(tmp_path)
+    mgr = TelegramRuntimeManager(data_dir=tmp_path / "data")
+    bot = _profile_bot_mock()
+
+    buf = io.BytesIO()
+    Image.new("RGBA", (8, 8), "green").save(buf, format="PNG")
+
+    img_connector = MagicMock()
+
+    async def _gen(prompt, negative_prompt=""):
+        _gen.prompt = prompt
+        yield {"type": "complete", "bytes": buf.getvalue()}
+
+    img_connector.generate_image_with_progress = _gen
+
+    manager = MagicMock()
+    manager.get_text_connector.return_value = _fake_text_connector(
+        "portrait of Alice, close-up, soft light"
+    )
+    manager.get_active_image_connector.return_value = img_connector
+
+    types_mock = MagicMock()
+    with patch("aubergeRP.connectors.manager.ConnectorManager", return_value=manager), \
+         patch.dict(sys.modules, {"aiogram.types": types_mock}):
+        await mgr._sync_bot_profile("bot-1", bot, char_id)
+
+    assert CharacterService(data_dir=tmp_path / "data").get_avatar_path(char_id) is not None
+    bot.set_my_profile_photo.assert_awaited_once()
 
 
 @pytest.mark.asyncio

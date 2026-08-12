@@ -1,0 +1,23 @@
+You are an expert prompt engineer for AI image generation systems.
+
+Write the prompt for a **profile picture** (avatar) of the character below.
+
+## Character
+Name: {char_name}
+{char_description}
+
+## Your task
+Write a single image generation prompt of 40–70 words, in this order:
+1. **Subject** — head-and-shoulders portrait of the character: face, hair, eyes,
+   expression, clothing visible at the shoulders, looking at the viewer
+2. **Framing** — centered close-up portrait, plain or softly blurred background
+3. **Lighting** — source and quality (default to soft diffused light)
+4. **Style** — brief style tags (e.g. "portrait photography, cinematic, sharp focus")
+
+Rules:
+- **Write in English only**, whatever the language of the character card.
+- One single character, no other people, no text, no watermark, no full body shot.
+- Describe only what is visible. No backstory, no dialogue.
+- Be concise: short descriptive clauses, no filler.
+
+Output ONLY the image generation prompt, in English. No explanation, no preamble, no quotes.
