@@ -69,6 +69,7 @@ class GuiConfigResponse(BaseModel):
     custom_css: str = ""
     custom_header_html: str = ""
     custom_footer_html: str = ""
+    public_character_list: bool = True
 
 
 class GuiConfigUpdate(BaseModel):
@@ -77,3 +78,4 @@ class GuiConfigUpdate(BaseModel):
     custom_css: str = ""
     custom_header_html: str = ""
     custom_footer_html: str = ""
+    public_character_list: bool = True

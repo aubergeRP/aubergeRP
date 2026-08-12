@@ -81,4 +81,7 @@ gui:
   custom_header_html: ""
   # Raw HTML inserted just before the closing </footer> tag.
   custom_footer_html: ""
+  # When false, the public character list is empty: chats are unlisted and only
+  # reachable through a direct /?character=<id> URL or via Telegram.
+  public_character_list: true
 

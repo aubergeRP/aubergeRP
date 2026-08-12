@@ -20,6 +20,28 @@ export async function loadCharacters() {
   return _characters;
 }
 
+/**
+ * Inject a character that is not part of the public list (unlisted chat opened
+ * via /?character=<id>) so the sidebar and header can display it.
+ * @param {object} card  A CharacterCard as returned by GET /api/characters/{id}
+ * @returns {object} the summary-shaped entry
+ */
+export function addStandaloneCharacter(card) {
+  const existing = _characters.find(c => c.id === card.id);
+  if (existing) return existing;
+  const summary = {
+    id: card.id,
+    name: card.data.name,
+    description: card.data.description || '',
+    avatar_url: `/api/characters/${card.id}/avatar`,
+    has_avatar: !!card.has_avatar,
+    tags: card.data.tags || [],
+  };
+  _characters.push(summary);
+  renderCharacters();
+  return summary;
+}
+
 export function getCharacter(id) {
   return _characters.find(c => c.id === id) || null;
 }
@@ -40,7 +62,7 @@ function renderCharacters() {
     li.style.color = 'var(--color-text-muted)';
     li.style.fontSize = '0.82rem';
     li.style.padding = '0.75rem 1rem';
-    li.textContent = 'No characters. Import one in Admin.';
+    li.textContent = 'No character available.';
     li.style.cursor = 'default';
     list.appendChild(li);
     return;

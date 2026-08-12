@@ -103,6 +103,19 @@ def get_admin_token(x_admin_token: str = Header(default="")) -> str:
     return x_admin_token
 
 
+def is_admin_request(x_admin_token: str = Header(default="")) -> bool:
+    """Non-raising variant of :func:`get_admin_token`.
+
+    Used by endpoints that stay public but return more data to an authenticated
+    admin (e.g. the character list when public listing is disabled).
+    """
+    try:
+        get_admin_token(x_admin_token)
+    except HTTPException:
+        return False
+    return True
+
+
 @router.post(
     "/login",
     response_model=AdminLoginResponse,

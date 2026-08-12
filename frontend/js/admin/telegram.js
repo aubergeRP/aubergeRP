@@ -28,7 +28,7 @@ const api = {
   enableBot:   (id)          => apiFetch(`/api/telegram/bots/${id}/enable`, { method: 'POST' }),
   disableBot:  (id)          => apiFetch(`/api/telegram/bots/${id}/disable`, { method: 'POST' }),
   testBot:     (id)          => apiFetch(`/api/telegram/bots/${id}/test`, { method: 'POST' }),
-  listChars:   ()            => fetch('/api/characters/').then(r => r.json()),
+  listChars:   ()            => apiFetch('/api/characters/'),
 };
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ async function _populateCharSelect(selectedId = '') {
     chars.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c.id;
-      opt.textContent = c.data?.name || c.id;
+      opt.textContent = c.name || c.id;
       if (c.id === selectedId) opt.selected = true;
       charSelect.appendChild(opt);
     });

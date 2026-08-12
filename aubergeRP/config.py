@@ -164,6 +164,9 @@ class GuiConfig(BaseModel):
     custom_header_html: str = ""
     # Raw HTML inserted just before the closing </footer> tag.
     custom_footer_html: str = ""
+    # When False, the public character list is empty: chats are unlisted and
+    # only reachable through a direct /?character=<id> URL or via Telegram.
+    public_character_list: bool = True
 
     @field_validator("custom_header_html", "custom_footer_html", mode="before")
     @classmethod

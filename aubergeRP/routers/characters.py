@@ -12,7 +12,7 @@ from ..services.character_service import (
     CharacterNotFoundError,
     CharacterService,
 )
-from .admin import get_admin_token
+from .admin import get_admin_token, is_admin_request
 
 router = APIRouter(prefix="/characters", tags=["characters"])
 
@@ -47,7 +47,16 @@ async def import_character(
 
 
 @router.get("/")
-def list_characters(service: CharacterService = Depends(get_character_service)) -> list[CharacterSummary]:
+def list_characters(
+    service: CharacterService = Depends(get_character_service),
+    is_admin: bool = Depends(is_admin_request),
+) -> list[CharacterSummary]:
+    from ..config import get_config
+
+    # Unlisted mode: visitors get an empty list; chats stay reachable through a
+    # direct /?character=<id> URL or via Telegram.  Admins always see them all.
+    if not get_config().gui.public_character_list and not is_admin:
+        return []
     return service.list_characters()
 
 

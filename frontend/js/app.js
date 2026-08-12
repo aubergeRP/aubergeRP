@@ -1,8 +1,8 @@
 import { applyGuiCustomization } from '/js/gui-customization.js';
 import { initStatusBar, initHeaderLogo } from '/js/layout.js';
-import { initCharacters, loadCharacters, setSelectedCharacter } from '/js/characters.js';
+import { addStandaloneCharacter, initCharacters, loadCharacters, setSelectedCharacter } from '/js/characters.js';
 import { initChat, onCharacterSelected, showToast } from '/js/chat.js';
-import { fetchTimezone, updateTimezone } from '/js/api.js';
+import { fetchCharacter, fetchTimezone, updateTimezone } from '/js/api.js';
 
 initStatusBar();
 initHeaderLogo();
@@ -50,9 +50,44 @@ applyGuiCustomization();
 initCharacters(onCharSelected);
 initChat();
 
-loadCharacters().then(characters => {
-  if (!characters || characters.length === 0) return;
+// An unlisted chat is opened with /?character=<id>.  The id is consumed and
+// removed from the address bar, then the character is loaded directly even if
+// it is absent from the (possibly empty) public list.
+function _takeRequestedCharacterId() {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('character');
+  if (!id) return null;
+  params.delete('character');
+  const clean = params.toString()
+    ? `${window.location.pathname}?${params}`
+    : window.location.pathname;
+  history.replaceState(null, '', clean);
+  return id;
+}
+
+const _requestedCharacterId = _takeRequestedCharacterId();
+
+loadCharacters().then(async characters => {
+  if (_requestedCharacterId) {
+    try {
+      const card = await fetchCharacter(_requestedCharacterId);
+      onCharSelected(addStandaloneCharacter(card));
+      return;
+    } catch (err) {
+      showToast('Character not found: ' + err.message);
+    }
+  }
   const lastId = localStorage.getItem('auberge_last_character_id');
+  if (!characters || characters.length === 0) {
+    // Unlisted mode: keep the last visited chat reachable without the URL.
+    if (!lastId) return;
+    try {
+      onCharSelected(addStandaloneCharacter(await fetchCharacter(lastId)));
+    } catch (_) {
+      localStorage.removeItem('auberge_last_character_id');
+    }
+    return;
+  }
   const toSelect = (lastId && characters.find(c => c.id === lastId)) || characters[0];
   onCharSelected(toSelect);
 }).catch(err => showToast('Failed to load characters: ' + err.message));

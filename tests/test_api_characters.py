@@ -74,6 +74,27 @@ def test_list_summary_shape(client):
     assert "created_at" in item
 
 
+def test_list_hidden_when_public_listing_disabled(client, monkeypatch):
+    """Unlisted mode: anonymous visitors get an empty list, admins get all."""
+    from aubergeRP.config import get_config
+
+    card = create_char(client, name="Elara")
+    get_config().gui.public_character_list = False
+
+    # Anonymous: the admin-auth test bypass must be off for this check.
+    monkeypatch.delenv("AUBERGE_DISABLE_ADMIN_AUTH", raising=False)
+    assert client.get("/api/characters/").json() == []
+
+    # The chat itself stays reachable through its direct id.
+    detail = client.get(f"/api/characters/{card['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["name"] == "Elara"
+
+    # Admin still sees the full list.
+    monkeypatch.setenv("AUBERGE_DISABLE_ADMIN_AUTH", "1")
+    assert [c["name"] for c in client.get("/api/characters/").json()] == ["Elara"]
+
+
 # ---------------------------------------------------------------------------
 # POST /api/characters/
 # ---------------------------------------------------------------------------

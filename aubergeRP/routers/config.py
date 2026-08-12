@@ -157,6 +157,7 @@ def get_gui_config() -> GuiConfigResponse:
         custom_css=config.gui.custom_css,
         custom_header_html=config.gui.custom_header_html,
         custom_footer_html=config.gui.custom_footer_html,
+        public_character_list=config.gui.public_character_list,
     )
 
 
@@ -170,9 +171,11 @@ def update_gui_config(
     config.gui.custom_css = update.custom_css
     config.gui.custom_header_html = _strip_js(update.custom_header_html)
     config.gui.custom_footer_html = _strip_js(update.custom_footer_html)
+    config.gui.public_character_list = update.public_character_list
     _save_config(save_path)
     return GuiConfigResponse(
         custom_css=config.gui.custom_css,
         custom_header_html=config.gui.custom_header_html,
         custom_footer_html=config.gui.custom_footer_html,
+        public_character_list=config.gui.public_character_list,
     )

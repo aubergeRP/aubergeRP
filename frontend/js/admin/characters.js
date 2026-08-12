@@ -9,9 +9,9 @@ import { adminFetch } from '/js/admin/auth.js';
 // ── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch(path, options = {}) {
-  const method = (options.method || 'GET').toUpperCase();
-  const isWrite = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method);
-  const res = isWrite ? await adminFetch(path, options) : await fetch(path, options);
+  // Reads also go through adminFetch: with the public character list disabled,
+  // an unauthenticated GET /api/characters/ returns an empty list.
+  const res = await adminFetch(path, options);
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {
@@ -258,6 +258,7 @@ function renderCharCard(c) {
         <div class="dropdown-wrap">
           <button class="btn-icon dropdown-toggle" title="More actions" aria-label="More actions for ${escHtml(c.name)}">⋮</button>
           <div class="dropdown-menu" style="display:none">
+            <button data-action="copy-link" data-id="${c.id}">Copy chat link</button>
             <button data-action="duplicate" data-id="${c.id}">Duplicate</button>
             <button data-action="translate" data-id="${c.id}">Translate…</button>
             <button data-action="export-json" data-id="${c.id}">Export as JSON</button>
@@ -278,6 +279,15 @@ async function handleCardAction(e) {
 
   if (action === 'edit') {
     await openEditDialog(id);
+  } else if (action === 'copy-link') {
+    // Direct link to this chat — the only way in when public listing is off.
+    const url = `${window.location.origin}/?character=${id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToastFn('Chat link copied to clipboard.', false);
+    } catch (_) {
+      showToastFn(url, false);
+    }
   } else if (action === 'duplicate') {
     try {
       await api.duplicateCharacter(id);

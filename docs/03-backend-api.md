@@ -59,7 +59,13 @@ Import Character
 List Characters
 
 
-**Responses:** `200` Successful Response
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
 
 ### `POST /api/characters/`
 
@@ -407,6 +413,7 @@ Update Gui Config
 | `custom_css` | string | no |
 | `custom_header_html` | string | no |
 | `custom_footer_html` | string | no |
+| `public_character_list` | boolean | no |
 
 **Parameters:**
 

@@ -1,4 +1,4 @@
-import { initAdminAuth } from '/js/admin/auth.js?v=2';
+import { initAdminAuth, adminFetch } from '/js/admin/auth.js?v=2';
 import { initConnectors, applyHealthBadges } from '/js/admin/connectors.js?v=2';
 import { initCharacters } from '/js/admin/characters.js?v=2';
 import { initMedias }    from '/js/admin/medias.js?v=3';
@@ -139,6 +139,7 @@ async function main() {
       document.getElementById('customize-css').value = cfg.custom_css || '';
       document.getElementById('customize-header-html').value = cfg.custom_header_html || '';
       document.getElementById('customize-footer-html').value = cfg.custom_footer_html || '';
+      document.getElementById('customize-public-list').checked = cfg.public_character_list !== false;
       refreshCustomizeHighlights();
     } catch (err) {
       feedbackEl.innerHTML = `<div class="error-banner">Cannot load GUI config: ${err.message}</div>`;
@@ -155,13 +156,15 @@ async function main() {
       custom_css: document.getElementById('customize-css').value,
       custom_header_html: document.getElementById('customize-header-html').value,
       custom_footer_html: document.getElementById('customize-footer-html').value,
+      public_character_list: document.getElementById('customize-public-list').checked,
     };
     try {
-      await fetch('/api/config/gui', {
+      const res = await adminFetch('/api/config/gui', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast('Customization saved. Reload pages to apply.', false);
     } catch (err) {
       feedbackEl.innerHTML = `<div class="error-banner">${err.message}</div>`;

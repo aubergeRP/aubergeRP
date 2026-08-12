@@ -71,6 +71,19 @@ def test_gui_config_defaults(client):
     assert data["custom_css"] == ""
     assert data["custom_header_html"] == ""
     assert data["custom_footer_html"] == ""
+    assert data["public_character_list"] is True
+
+
+def test_gui_config_public_character_list_round_trip(client):
+    """The unlisted-chats switch persists through PUT and is returned by GET."""
+    payload = {
+        "custom_css": "",
+        "custom_header_html": "",
+        "custom_footer_html": "",
+        "public_character_list": False,
+    }
+    assert client.put("/api/config/gui", json=payload).status_code == 200
+    assert client.get("/api/config/gui").json()["public_character_list"] is False
 
 
 def test_gui_config_update_and_retrieve(client):

@@ -356,6 +356,12 @@
       </div>
       <div id="customize-feedback"></div>
 
+      <div class="field-divider">Visibility</div>
+      <div class="field-row">
+        <label for="customize-public-list" title="When unchecked, the public character list is empty: chats are unlisted and only reachable through their direct link or via Telegram.">Public character list</label>
+        <input type="checkbox" id="customize-public-list" checked>
+      </div>
+
       <div class="field-divider">Custom CSS</div>
       <div class="field-row" style="align-items:flex-start">
         <label for="customize-css" title="Custom CSS injected on app pages.">CSS</label>
@@ -627,6 +633,17 @@
       <button class="dialog-close" id="tg-dialog-close" aria-label="Close">✕</button>
     </div>
     <div class="dialog-body">
+      <div class="help-box">
+        <strong>How to create a Telegram bot</strong>
+        <ol>
+          <li>Open Telegram and start a chat with <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>.</li>
+          <li>Send <code>/newbot</code>, then choose a display name and a username ending in <code>bot</code>.</li>
+          <li>BotFather replies with a token like <code>123456789:AAE…</code> — paste it below.</li>
+          <li>Pick the character the bot will play, save, then use <em>Test</em> to check the connection.</li>
+          <li>Enable the bot, then message it on Telegram to start chatting.</li>
+        </ol>
+        <a href="https://core.telegram.org/bots/features#botfather" target="_blank" rel="noopener">Official Telegram documentation ↗</a>
+      </div>
       <div class="field-row">
         <label for="tg-bot-name">Display Name <span class="required">*</span></label>
         <input type="text" id="tg-bot-name" autocomplete="off" placeholder="Alice Bot">
