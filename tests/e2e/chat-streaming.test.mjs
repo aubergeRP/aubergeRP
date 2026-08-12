@@ -101,3 +101,30 @@ test('shows retry button even when image_failed arrives without a prior image_st
     assert.ok(retryBtn !== null, 'retry button should appear even without a placeholder');
   });
 });
+
+test('proactive typing indicator is shown then removed when nothing is generated', async () => {
+  await withPage(async (page) => {
+    await page.evaluate(() => window.__chatHarness.startTyping());
+    await page.waitForSelector('.typing-indicator', { state: 'visible' });
+
+    await page.evaluate(() => window.__chatHarness.cancelTyping());
+    await page.waitForSelector('.typing-indicator', { state: 'detached' });
+
+    const bubbles = await page.$$('.msg.assistant');
+    assert.equal(bubbles.length, 0, 'the empty bubble must be removed too');
+  });
+});
+
+test('proactive message keeps its bubble when content arrived before cancel', async () => {
+  await withPage(async (page) => {
+    await page.evaluate(() => {
+      window.__chatHarness.startTyping();
+      window.__chatHarness.typeToken('Are you still there?');
+      window.__chatHarness.cancelTyping();
+    });
+
+    await page.waitForSelector('.msg-bubble', { state: 'visible' });
+    const text = await page.textContent('.msg-bubble');
+    assert.ok(text.includes('Are you still there?'));
+  });
+});

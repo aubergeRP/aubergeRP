@@ -221,16 +221,23 @@ both Telegram and Web sessions.
 ### Telegram
 
 Proactive messages are delivered directly to the Telegram chat using the bot that
-owns the session.
+owns the session. While the message is being generated the bot shows the native
+Telegram "typing" status, so the user sees the character composing.
 
 Telegram instances are automatically created the first time a user messages a bot
 that has a character with schedules enabled.
 
 ### Web
 
-Web sessions do not currently support server-initiated push delivery.
-The generated assistant message is persisted to the conversation history normally.
-It will appear the next time the user opens or refreshes the chat.
+The generated assistant message is persisted to the conversation history and
+pushed to any open tab through the in-process event bus behind
+`GET /api/chat/{id}/events` — the same channel used for multi-tab delivery.
+A `typing` event is published while the message is generated (the browser shows
+the usual typing indicator), followed by the message itself as `token` + `done`
+events, so it appears live without a refresh.
+
+Push is best-effort: with no tab connected nothing is lost, since the message is
+already persisted and shows up the next time the chat is opened or refreshed.
 
 ---
 

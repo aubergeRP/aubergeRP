@@ -36,6 +36,16 @@
       finalize() {
         window.__streaming?.finalize();
       },
+      // Proactive web push: a typing status arrives before any content.
+      startTyping() {
+        window.__streaming = __test.createStreamingMessage();
+      },
+      cancelTyping() {
+        window.__streaming?.cancel();
+      },
+      typeToken(text = 'Hello') {
+        window.__streaming?.onToken(text);
+      },
       dispatchProgressEvent() {
         const streaming = __test.createStreamingMessage();
         __test.dispatchSSEEvent({ type: 'image_start', generation_id: 'gen-2', prompt: 'stormy castle' }, streaming);

@@ -312,6 +312,18 @@ function subscribeRemoteEvents(conversationId) {
       return;
     }
 
+    // Proactive messages announce themselves before the text exists: show the
+    // typing indicator, and drop it again if the generation produced nothing.
+    if (event.type === 'typing') {
+      if (event.state === 'start') {
+        if (!_remoteStreaming) _remoteStreaming = createStreamingMessage();
+      } else if (_remoteStreaming) {
+        _remoteStreaming.cancel();
+        _remoteStreaming = null;
+      }
+      return;
+    }
+
     if (event.type === 'token' || event.type === 'image_start') {
       if (!_remoteStreaming) {
         _remoteStreaming = createStreamingMessage();
@@ -575,6 +587,15 @@ function createStreamingMessage() {
       typingEl.remove();
       wrapper.style.display = '';
       if (rawText) bubble.style.display = '';
+    },
+    /** Drop the bubble entirely — used when nothing was ever rendered in it. */
+    cancel() {
+      typingEl.remove();
+      if (!rawText && pendingImages.size === 0 && !imagesContainer.hasChildNodes()) {
+        wrapper.remove();
+      } else {
+        this.finalize();
+      }
     },
   };
 }

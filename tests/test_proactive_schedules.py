@@ -860,6 +860,61 @@ class TestDeliveryService:
         )
 
     @pytest.mark.asyncio
+    async def test_web_adapter_pushes_message_to_open_tabs(self) -> None:
+        """An open SSE tab receives the proactive message as token + done."""
+        from aubergeRP.event_bus import get_event_bus
+        from aubergeRP.services.delivery_service import WebDeliveryAdapter
+
+        bus = get_event_bus()
+        q = bus.subscribe("tok1", "conv1")
+        try:
+            await WebDeliveryAdapter().deliver(
+                channel_instance_id="web",
+                external_chat_id="tok1",
+                message_text="Hello there",
+                conversation_id="conv1",
+            )
+            assert q.get_nowait() == {"type": "token", "content": "Hello there"}
+            assert q.get_nowait() == {"type": "done"}
+        finally:
+            bus.unsubscribe("tok1", "conv1", q)
+
+    @pytest.mark.asyncio
+    async def test_web_adapter_typing_publishes_start_and_stop(self) -> None:
+        from aubergeRP.event_bus import get_event_bus
+        from aubergeRP.services.delivery_service import WebDeliveryAdapter
+
+        bus = get_event_bus()
+        q = bus.subscribe("tok2", "conv2")
+        try:
+            async with WebDeliveryAdapter().typing(
+                channel_instance_id="web", external_chat_id="tok2", conversation_id="conv2"
+            ):
+                assert q.get_nowait() == {"type": "typing", "state": "start"}
+            assert q.get_nowait() == {"type": "typing", "state": "stop"}
+        finally:
+            bus.unsubscribe("tok2", "conv2", q)
+
+    @pytest.mark.asyncio
+    async def test_web_adapter_typing_stops_on_generation_failure(self) -> None:
+        """A failed generation must not leave the tab stuck on "typing"."""
+        from aubergeRP.event_bus import get_event_bus
+        from aubergeRP.services.delivery_service import WebDeliveryAdapter
+
+        bus = get_event_bus()
+        q = bus.subscribe("tok3", "conv3")
+        try:
+            with pytest.raises(RuntimeError):
+                async with WebDeliveryAdapter().typing(
+                    channel_instance_id="web", external_chat_id="tok3", conversation_id="conv3"
+                ):
+                    raise RuntimeError("boom")
+            assert q.get_nowait()["state"] == "start"
+            assert q.get_nowait()["state"] == "stop"
+        finally:
+            bus.unsubscribe("tok3", "conv3", q)
+
+    @pytest.mark.asyncio
     async def test_web_adapter_typing_is_noop(self) -> None:
         from aubergeRP.services.delivery_service import WebDeliveryAdapter
 

@@ -233,6 +233,7 @@ class ProactiveScheduler:
                 async with adapter.typing(
                     channel_instance_id=row.channel_instance_id,
                     external_chat_id=row.external_chat_id,
+                    conversation_id=row.conversation_id,
                 ):
                     message = await self._generate(
                         conversation_id=row.conversation_id, proactive_injection=injection
@@ -247,6 +248,7 @@ class ProactiveScheduler:
                     channel_instance_id=row.channel_instance_id,
                     external_chat_id=row.external_chat_id,
                     message_text=message,
+                    conversation_id=row.conversation_id,
                 )
             except Exception:
                 logger.exception(

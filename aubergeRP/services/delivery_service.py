@@ -6,10 +6,12 @@ or any other transport directly.
 
 Web transport
 -------------
-Web sessions do not currently support server-initiated push.  The generated
-assistant message is persisted normally so it appears on the next page
-refresh or reconnect.  This limitation is documented in
-``docs/07-character-card-schedules.md``.
+Web sessions are pushed through the in-process event bus, which already backs
+the ``GET /api/chat/{id}/events`` SSE endpoint used for multi-tab delivery.
+The adapter publishes a ``typing`` status while the message is generated and
+then the message itself as ``token`` + ``done`` events, so an open tab renders
+it live.  The message is also persisted by the scheduler, so tabs that were
+closed still see it on the next refresh.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+from ..event_bus import get_event_bus
 from .observability_service import get_registry, record_error
 
 logger = logging.getLogger(__name__)
@@ -34,6 +37,7 @@ class DeliveryAdapter(ABC):
         channel_instance_id: str,
         external_chat_id: str,
         message_text: str,
+        conversation_id: str = "",
     ) -> None:
         """Send *message_text* to the external user.
 
@@ -42,8 +46,9 @@ class DeliveryAdapter(ABC):
 
         Args:
             channel_instance_id: e.g. Telegram bot ID.
-            external_chat_id:    e.g. Telegram chat ID.
+            external_chat_id:    e.g. Telegram chat ID, or the web session token.
             message_text:        The assistant response text to deliver.
+            conversation_id:     Conversation the message belongs to (web push).
         """
 
     @contextlib.asynccontextmanager
@@ -52,21 +57,50 @@ class DeliveryAdapter(ABC):
         *,
         channel_instance_id: str,
         external_chat_id: str,
+        conversation_id: str = "",
     ) -> AsyncIterator[None]:
         """Show a "composing" status on the transport for the duration of the block.
 
-        Default implementation is a no-op — transports without such a concept
-        (e.g. web) simply do nothing.  Never raises: the status is cosmetic.
+        Default implementation is a no-op.  Never raises: the status is
+        cosmetic and must never break the generation it wraps.
         """
         yield
 
 
 class WebDeliveryAdapter(DeliveryAdapter):
-    """No-op delivery for web sessions.
+    """Push a proactive message to open web tabs via the event bus.
 
-    The chat engine already persisted the message to the conversation history.
-    Web clients pick it up on the next refresh or SSE reconnect.
+    The bus is keyed by ``(session_token, conversation_id)``; for the web
+    channel ``external_chat_id`` *is* the session token (see
+    ``routers/chat.get_chat_service``).  Tabs with no open SSE connection lose
+    nothing: the scheduler persisted the message before calling us.
     """
+
+    @contextlib.asynccontextmanager
+    async def typing(
+        self,
+        *,
+        channel_instance_id: str,
+        external_chat_id: str,
+        conversation_id: str = "",
+    ) -> AsyncIterator[None]:
+        """Publish a typing status for the duration of the block."""
+        if not external_chat_id or not conversation_id:
+            yield
+            return
+
+        bus = get_event_bus()
+        with contextlib.suppress(Exception):
+            await bus.publish(
+                external_chat_id, conversation_id, {"type": "typing", "state": "start"}
+            )
+        try:
+            yield
+        finally:
+            with contextlib.suppress(Exception):
+                await bus.publish(
+                    external_chat_id, conversation_id, {"type": "typing", "state": "stop"}
+                )
 
     async def deliver(
         self,
@@ -74,12 +108,22 @@ class WebDeliveryAdapter(DeliveryAdapter):
         channel_instance_id: str,
         external_chat_id: str,
         message_text: str,
+        conversation_id: str = "",
     ) -> None:
-        logger.debug(
-            "WebDeliveryAdapter: message persisted for external_chat_id=%s "
-            "(will appear on next web refresh)",
-            external_chat_id,
+        if not external_chat_id or not conversation_id:
+            logger.debug(
+                "WebDeliveryAdapter: no session token or conversation id; "
+                "message persisted only (will appear on next web refresh)",
+            )
+            return
+
+        # Same event shape as a normal streamed reply, so open tabs render it
+        # with the existing remote-SSE handler.
+        bus = get_event_bus()
+        await bus.publish(
+            external_chat_id, conversation_id, {"type": "token", "content": message_text}
         )
+        await bus.publish(external_chat_id, conversation_id, {"type": "done"})
 
 
 class TelegramDeliveryAdapter(DeliveryAdapter):
@@ -99,6 +143,7 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
         *,
         channel_instance_id: str,
         external_chat_id: str,
+        conversation_id: str = "",
     ) -> AsyncIterator[None]:
         """Show the Telegram "typing" status while the block runs."""
         from ..services.telegram_runtime_manager import chat_action
@@ -129,6 +174,7 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
         channel_instance_id: str,
         external_chat_id: str,
         message_text: str,
+        conversation_id: str = "",
     ) -> None:
         try:
             from aiogram import Bot
