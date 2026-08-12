@@ -43,6 +43,20 @@ The Docker setup ships with a bundled [LocalAI](https://localai.io/) instance �
 
 ## 🛠 Quick Start
 
+### Fastest: pre-built image from GHCR
+
+Every tagged release is published to the GitHub Container Registry:
+
+```bash
+docker run -d -p 8123:8123 -v auberge-data:/data ghcr.io/aubergerp/aubergerp:latest
+```
+
+Open **http://localhost:8123** and plug in your text/image connectors from the
+admin panel. This image is standalone — no LocalAI bundled. For the full stack
+with automatic model downloads, use the source checkout below.
+
+### From source
+
 1. **Clone & Config**
    ```bash
    git clone https://github.com/aubergeRP/aubergeRP.git
