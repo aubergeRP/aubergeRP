@@ -13,8 +13,10 @@ refresh or reconnect.  This limitation is documented in
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from .observability_service import get_registry, record_error
@@ -43,6 +45,20 @@ class DeliveryAdapter(ABC):
             external_chat_id:    e.g. Telegram chat ID.
             message_text:        The assistant response text to deliver.
         """
+
+    @contextlib.asynccontextmanager
+    async def typing(
+        self,
+        *,
+        channel_instance_id: str,
+        external_chat_id: str,
+    ) -> AsyncIterator[None]:
+        """Show a "composing" status on the transport for the duration of the block.
+
+        Default implementation is a no-op — transports without such a concept
+        (e.g. web) simply do nothing.  Never raises: the status is cosmetic.
+        """
+        yield
 
 
 class WebDeliveryAdapter(DeliveryAdapter):
@@ -76,6 +92,36 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
 
     def __init__(self, data_dir: Path | str) -> None:
         self._data_dir = Path(data_dir)
+
+    @contextlib.asynccontextmanager
+    async def typing(
+        self,
+        *,
+        channel_instance_id: str,
+        external_chat_id: str,
+    ) -> AsyncIterator[None]:
+        """Show the Telegram "typing" status while the block runs."""
+        from ..services.telegram_runtime_manager import chat_action
+
+        try:
+            from aiogram import Bot
+
+            from ..services.telegram_bot_service import TelegramBotService
+
+            token = TelegramBotService(self._data_dir).get_bot_token(channel_instance_id)
+            int(external_chat_id)  # reject non-numeric chat ids early
+        except Exception:
+            # No bot, no aiogram or an unusable chat id — deliver() reports it.
+            yield
+            return
+
+        bot = Bot(token=token)
+        try:
+            async with chat_action(bot, external_chat_id):
+                yield
+        finally:
+            with contextlib.suppress(Exception):
+                await bot.session.close()
 
     async def deliver(
         self,

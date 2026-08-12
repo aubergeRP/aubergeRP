@@ -690,6 +690,43 @@ class TestServiceLayer:
 
         assert get_registry().telegram(bot.id).delivery_failures == 1
 
+    def test_telegram_typing_shows_chat_action(self, env):
+        """The proactive path shows a "typing" status while generating."""
+        import asyncio
+
+        from aubergeRP.services.delivery_service import TelegramDeliveryAdapter
+
+        bot = _add_bot(env["dir"], name="Alpha")
+        fake_bot = AsyncMock()
+
+        async def scenario():
+            adapter = TelegramDeliveryAdapter(env["dir"])
+            async with adapter.typing(channel_instance_id=bot.id, external_chat_id="123"):
+                await asyncio.sleep(0)
+
+        with fake_aiogram(fake_bot):
+            asyncio.run(scenario())
+
+        fake_bot.send_chat_action.assert_awaited_with(chat_id=123, action="typing")
+
+    def test_telegram_typing_unknown_bot_is_noop(self, env):
+        """An unusable bot/chat id must not break the generation it wraps."""
+        import asyncio
+
+        from aubergeRP.services.delivery_service import TelegramDeliveryAdapter
+
+        fake_bot = AsyncMock()
+
+        async def scenario():
+            adapter = TelegramDeliveryAdapter(env["dir"])
+            async with adapter.typing(channel_instance_id="nope", external_chat_id="abc"):
+                pass
+
+        with fake_aiogram(fake_bot):
+            asyncio.run(scenario())
+
+        fake_bot.send_chat_action.assert_not_awaited()
+
     def test_existing_statistics_endpoint_is_unchanged(self, client, env):
         _record(env["stats"], env["conv"].id)
         data = client.get("/api/statistics/").json()

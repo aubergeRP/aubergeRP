@@ -11,11 +11,12 @@ Covers:
 """
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -530,7 +531,7 @@ class TestProactiveScheduler:
             generate_call_count += 1
             return "Hi there!"
 
-        failing_adapter = AsyncMock()
+        failing_adapter = _mock_adapter()
         failing_adapter.deliver = AsyncMock(side_effect=RuntimeError("Network error"))
 
         scheduler = ProactiveScheduler(data_dir)
@@ -592,7 +593,7 @@ class TestProactiveScheduler:
         with (
             patch.object(scheduler, "_generate", side_effect=fake_generate),
             patch("aubergeRP.services.proactive_scheduler_service.make_delivery_adapter",
-                  return_value=AsyncMock()),
+                  return_value=_mock_adapter()),
         ):
             await scheduler._tick()
 
@@ -838,6 +839,13 @@ class TestChatServiceProactiveInjection:
 # ---------------------------------------------------------------------------
 
 
+def _mock_adapter() -> AsyncMock:
+    """A DeliveryAdapter mock whose ``typing()`` is a real (no-op) async CM."""
+    adapter = AsyncMock()
+    adapter.typing = MagicMock(return_value=contextlib.nullcontext())
+    return adapter
+
+
 class TestDeliveryService:
     @pytest.mark.asyncio
     async def test_web_adapter_is_noop(self) -> None:
@@ -850,6 +858,15 @@ class TestDeliveryService:
             external_chat_id="user1",
             message_text="Hello",
         )
+
+    @pytest.mark.asyncio
+    async def test_web_adapter_typing_is_noop(self) -> None:
+        from aubergeRP.services.delivery_service import WebDeliveryAdapter
+
+        async with WebDeliveryAdapter().typing(
+            channel_instance_id="web", external_chat_id="user1"
+        ):
+            pass
 
     def test_make_delivery_adapter_web(self, data_dir: Path) -> None:
         from aubergeRP.services.delivery_service import WebDeliveryAdapter, make_delivery_adapter

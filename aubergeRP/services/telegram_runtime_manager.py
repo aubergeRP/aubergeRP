@@ -40,6 +40,7 @@ import contextlib
 import hashlib
 import logging
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,6 +56,9 @@ logger = logging.getLogger(__name__)
 
 # Maximum Telegram message length (Bot API limit).
 _TG_MAX_LEN = 4096
+
+# Telegram clears a chat action after ~5s — refresh slightly before that.
+_TG_CHAT_ACTION_REFRESH_S = 4.0
 
 # Bot API limits for the bot profile fields.
 _TG_MAX_NAME_LEN = 64
@@ -73,6 +77,30 @@ def _png_to_jpeg(raw: bytes) -> bytes:
         out = io.BytesIO()
         rgb.save(out, format="JPEG", quality=90)
     return out.getvalue()
+
+
+@contextlib.asynccontextmanager
+async def chat_action(bot: Bot, chat_id: str, action: str = "typing") -> AsyncIterator[None]:
+    """Show a Telegram status ("typing"/"upload_photo") for the duration of the block.
+
+    Telegram clears the status after ~5s, so it is re-sent periodically.
+    Failures are ignored: the status is cosmetic and must never break delivery.
+    """
+    async def _loop() -> None:
+        while True:
+            try:
+                await bot.send_chat_action(chat_id=int(chat_id), action=action)
+            except Exception:
+                return
+            await asyncio.sleep(_TG_CHAT_ACTION_REFRESH_S)
+
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 def split_message(text: str, max_len: int = _TG_MAX_LEN) -> list[str]:
@@ -570,7 +598,7 @@ class TelegramRuntimeManager:
 
             # Serialize generation per conversation
             lock = self._get_conv_lock(conv_id)
-            async with lock:
+            async with lock, chat_action(bot, chat_id):
                 try:
                     result = await self._generate(
                         conv_id,
@@ -599,7 +627,8 @@ class TelegramRuntimeManager:
                         with image_path.open("rb") as img_fh:
                             from aiogram.types import BufferedInputFile
                             img_data = BufferedInputFile(img_fh.read(), filename=image_path.name)
-                            await bot.send_photo(chat_id=chat_id_int, photo=img_data)
+                            async with chat_action(bot, chat_id, "upload_photo"):
+                                await bot.send_photo(chat_id=chat_id_int, photo=img_data)
                     except Exception as exc:
                         logger.error(
                             "Telegram bot %s: failed to send image %s to conv %s",

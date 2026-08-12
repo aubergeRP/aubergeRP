@@ -16,7 +16,11 @@ from aubergeRP.services.telegram_bot_service import (
     TelegramBotService,
     TelegramBotUpdate,
 )
-from aubergeRP.services.telegram_runtime_manager import TelegramRuntimeManager, split_message
+from aubergeRP.services.telegram_runtime_manager import (
+    TelegramRuntimeManager,
+    chat_action,
+    split_message,
+)
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -1041,3 +1045,29 @@ def test_test_connection_does_not_start_on_failure(client, tmp_path):
         resp = client.post(f"/api/telegram/bots/{created['id']}/test")
     assert resp.status_code == 200
     mgr.start_bot.assert_not_awaited()
+
+
+# ── chat action ("typing") ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_chat_action_sent_and_stopped():
+    bot = MagicMock()
+    bot.send_chat_action = AsyncMock()
+
+    async with chat_action(bot, "42"):
+        await asyncio.sleep(0)  # let the refresh task run once
+
+    bot.send_chat_action.assert_awaited_with(chat_id=42, action="typing")
+    calls = bot.send_chat_action.await_count
+    await asyncio.sleep(0)
+    assert bot.send_chat_action.await_count == calls  # task cancelled
+
+
+@pytest.mark.asyncio
+async def test_chat_action_failure_is_ignored():
+    bot = MagicMock()
+    bot.send_chat_action = AsyncMock(side_effect=RuntimeError("boom"))
+
+    async with chat_action(bot, "42", "upload_photo"):
+        await asyncio.sleep(0)

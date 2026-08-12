@@ -210,6 +210,8 @@ class ProactiveScheduler:
             local_time_str = now.astimezone(zi).strftime("%Y-%m-%d %H:%M ") + row.timezone
             injection = _build_proactive_injection(local_time_str, defn.instruction)
 
+            adapter = make_delivery_adapter(row.channel, self._data_dir)
+
             message: str | None = None
             if row.decision_mode == "contextual":
                 decision = await self._decide_send_or_skip(conversation_id=row.conversation_id, injection=injection)
@@ -226,13 +228,20 @@ class ProactiveScheduler:
                 message = decision.message.strip() or None
 
             if message is None:
-                message = await self._generate(conversation_id=row.conversation_id, proactive_injection=injection)
+                # Show "typing" only once the decision to send is made, so a
+                # contextual skip never flashes a status the user then loses.
+                async with adapter.typing(
+                    channel_instance_id=row.channel_instance_id,
+                    external_chat_id=row.external_chat_id,
+                ):
+                    message = await self._generate(
+                        conversation_id=row.conversation_id, proactive_injection=injection
+                    )
             if message is None:
                 fail("generation_failed")
                 return
 
             self._persist_assistant_message(row.conversation_id, message)
-            adapter = make_delivery_adapter(row.channel, self._data_dir)
             try:
                 await adapter.deliver(
                     channel_instance_id=row.channel_instance_id,
