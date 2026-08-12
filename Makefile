@@ -97,30 +97,36 @@ doc:
 # Bumps the version in pyproject.toml, commits, tags v<version> and pushes.
 # Pushing the tag triggers .github/workflows/docker-publish.yml, which builds
 # the GHCR image and opens the matching GitHub release.
+#
+# Naming convention: the *git tag* carries the `v` prefix (v1.2.3) because the
+# workflow triggers on `v*`; pyproject.toml and the *Docker tag* do not (1.2.3).
+# `v=1.2.3` and `v=v1.2.3` are both accepted — the prefix is normalised away.
+RELEASE_VERSION := $(patsubst v%,%,$(strip $(v)))
+
 tag:
-	@if [ -z "$(v)" ]; then \
+	@if [ -z "$(RELEASE_VERSION)" ]; then \
 		printf "$(RED)Error:$(RESET) missing version. Use: make tag v=1.2.3\n"; exit 1; \
 	fi
-	@echo "$(v)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$' || { \
-		printf "$(RED)Error:$(RESET) '$(v)' is not a valid semver (e.g. 1.2.3 or 1.2.3-rc1).\n"; exit 1; }
+	@echo "$(RELEASE_VERSION)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$' || { \
+		printf "$(RED)Error:$(RESET) '$(v)' is not a valid semver (e.g. 1.2.3 or v1.2.3).\n"; exit 1; }
 	@[ -z "$$(git status --porcelain)" ] || { \
 		printf "$(RED)Error:$(RESET) working tree is not clean — commit or stash first.\n"; exit 1; }
 	@[ "$$(git rev-parse --abbrev-ref HEAD)" = "main" ] || { \
 		printf "$(RED)Error:$(RESET) releases are tagged from main only.\n"; exit 1; }
-	@git rev-parse -q --verify "refs/tags/v$(v)" >/dev/null && { \
-		printf "$(RED)Error:$(RESET) tag v$(v) already exists.\n"; exit 1; } || true
-	@printf "  $(BLUE)→$(RESET) Bumping pyproject.toml to $(v)...\n"
-	@sed -i '0,/^version = ".*"$$/s//version = "$(v)"/' pyproject.toml
-	@grep -q '^version = "$(v)"$$' pyproject.toml || { \
+	@git rev-parse -q --verify "refs/tags/v$(RELEASE_VERSION)" >/dev/null && { \
+		printf "$(RED)Error:$(RESET) tag v$(RELEASE_VERSION) already exists.\n"; exit 1; } || true
+	@printf "  $(BLUE)→$(RESET) Bumping pyproject.toml to $(RELEASE_VERSION)...\n"
+	@sed -i '0,/^version = ".*"$$/s//version = "$(RELEASE_VERSION)"/' pyproject.toml
+	@grep -q '^version = "$(RELEASE_VERSION)"$$' pyproject.toml || { \
 		printf "$(RED)Error:$(RESET) failed to update version in pyproject.toml.\n"; \
 		git checkout -- pyproject.toml; exit 1; }
 	@git add pyproject.toml
-	@git commit -m "chore(release): v$(v)"
-	@git tag -a "v$(v)" -m "v$(v)"
-	@printf "  $(BLUE)→$(RESET) Pushing main and tag v$(v)...\n"
+	@git commit -m "chore(release): v$(RELEASE_VERSION)"
+	@git tag -a "v$(RELEASE_VERSION)" -m "v$(RELEASE_VERSION)"
+	@printf "  $(BLUE)→$(RESET) Pushing main and tag v$(RELEASE_VERSION)...\n"
 	@git push origin main
-	@git push origin "v$(v)"
-	@printf "  $(GREEN)✓$(RESET) v$(v) pushed — watch the build:\n"
+	@git push origin "v$(RELEASE_VERSION)"
+	@printf "  $(GREEN)✓$(RESET) v$(RELEASE_VERSION) pushed — watch the build:\n"
 	@printf "    https://github.com/aubergeRP/aubergeRP/actions\n"
 
 # ─── Docker: make docker [gpu=<profile>] ─────────────────────────────────────
