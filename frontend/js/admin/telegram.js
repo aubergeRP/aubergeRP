@@ -5,6 +5,7 @@
  */
 
 import { adminFetch } from '/js/admin/auth.js';
+import { closeEditorPage, openEditorPage } from '/js/admin/editor-page.js?v=1';
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -204,12 +205,12 @@ function _openDialog(title, bot = null) {
   _syncModeFields();
   _editId = bot?.id || null;
   _populateCharSelect(bot?.character_id || '');
-  dialog.style.display = 'flex';
+  openEditorPage(dialog);
   nameInput.focus();
 }
 
 function _closeDialog() {
-  dialog.style.display = 'none';
+  closeEditorPage(dialog);
   _editId = null;
 }
 

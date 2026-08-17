@@ -5,6 +5,7 @@
  */
 
 import { adminFetch } from '/js/admin/auth.js';
+import { closeEditorPage, openEditorPage } from '/js/admin/editor-page.js?v=1';
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -135,7 +136,6 @@ export function initCharacters({ showToast, showConfirm }) {
   // Import dialog
   importClose.addEventListener('click', closeImportDialog);
   importCancel.addEventListener('click', closeImportDialog);
-  importDialog.addEventListener('click', e => { if (e.target === importDialog) closeImportDialog(); });
 
   importDropZone.addEventListener('click', () => importFileInp.click());
   importDropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') importFileInp.click(); });
@@ -155,14 +155,12 @@ export function initCharacters({ showToast, showConfirm }) {
   // Translate dialog
   translateClose.addEventListener('click', closeTranslateDialog);
   translateCancel.addEventListener('click', closeTranslateDialog);
-  translateDialog.addEventListener('click', e => { if (e.target === translateDialog) closeTranslateDialog(); });
   translateGo.addEventListener('click', runTranslation);
   translateLangInp.addEventListener('keydown', e => { if (e.key === 'Enter') runTranslation(); });
 
   // Edit dialog
   charClose.addEventListener('click', closeEditDialog);
   charCancel.addEventListener('click', closeEditDialog);
-  charDialog.addEventListener('click', e => { if (e.target === charDialog) closeEditDialog(); });
   charSave.addEventListener('click', handleSave);
 
   // Schedules
@@ -331,11 +329,11 @@ function downloadUrl(url) {
 function openImportDialog() {
   importError.textContent = '';
   importFileInp.value = '';
-  importDialog.style.display = 'flex';
+  openEditorPage(importDialog);
 }
 
 function closeImportDialog() {
-  importDialog.style.display = 'none';
+  closeEditorPage(importDialog);
 }
 
 async function handleImportFile(file) {
@@ -361,13 +359,13 @@ function openTranslateDialog(id) {
   translateLangInp.value = '';
   translateGo.disabled = false;
   translateGo.textContent = 'Translate';
-  translateDialog.style.display = 'flex';
+  openEditorPage(translateDialog);
   translateLangInp.focus();
 }
 
 function closeTranslateDialog() {
   if (translateGo.disabled) return;  // a translation is running
-  translateDialog.style.display = 'none';
+  closeEditorPage(translateDialog);
   translatingId = null;
 }
 
@@ -452,12 +450,12 @@ async function openEditDialog(id) {
     renderRuntimeSchedules(null);
   }
 
-  charDialog.style.display = 'flex';
+  openEditorPage(charDialog);
   fName.focus();
 }
 
 function closeEditDialog() {
-  charDialog.style.display = 'none';
+  closeEditorPage(charDialog);
   editingId = null;
   pendingAvatarFile = null;
   editingSchedules = [];
