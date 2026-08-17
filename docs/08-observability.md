@@ -2,8 +2,11 @@
 
 The **Admin → Operations** dashboard answers one question: *is this instance
 healthy, and if not, where is it broken?* It aggregates data AubergeRP already
-keeps — it is not a separate monitoring system, and it does not store prompts
-or replies.
+keeps — it is not a separate monitoring system.
+
+The dashboard always reports a **fixed 24-hour window**; there is no range
+selector. Longer-term usage reporting belongs to **Admin → Statistics** (14
+days) and, for real retention, to Prometheus.
 
 ## Sections
 
@@ -14,14 +17,14 @@ or replies.
 | Uptime | Time since the current process started. Resets on restart. |
 | Version | `aubergeRP.__version__`. Shows `dev` when running outside a source checkout. |
 | Database | Whether the SQLite file is readable, plus its size on disk. |
-| Active conversations | Conversations with at least one message inside the selected time range. |
+| Active conversations | Conversations with at least one message in the last 24 h. |
 | Sessions | Rows in `channel_sessions` — one per (transport, bot, external user). |
 
 ### Telegram
 
-Per configured bot: name, `@username`, character, enabled flag, runtime state,
-polling vs webhook, last update received, last message sent, delivery failures
-and the last error.
+Per configured bot: name, `@username`, character, state, polling vs webhook,
+last update received, last message sent, delivery failures, session count and
+the last error.
 
 `Runtime` is derived, not stored:
 
@@ -30,7 +33,7 @@ and the last error.
   never started. This is the state to look for when a bot goes quiet.
 * **Stopped** — the bot is disabled, which is expected.
 
-For webhook bots the *webhook* link queries Telegram live and shows the
+For webhook bots the *detail* link queries Telegram live and shows the
 registered URL, the pending update count and Telegram's own last error. A
 growing pending count means Telegram cannot reach your endpoint.
 
@@ -39,7 +42,7 @@ Tokens and webhook secrets are never returned by the API.
 ### Sessions
 
 Recent sessions across every transport with transport, bot, character,
-timezone, message count and last user/assistant activity. External user
+message count and last user/assistant activity. External user
 identifiers are truncated to their last four characters — enough to correlate
 rows, not enough to identify a third party.
 
@@ -51,23 +54,26 @@ Aggregates from `llm_call_stats`, split by generation type:
 * `proactive` — a scheduled/proactive generation.
 * `summarization` — the summarization round-trip itself.
 
-Reported per type: generations, failures, failure rate, average latency and
-token counts. Latency is total wall-clock for the generation, including image
-generation when the reply triggered one.
+Reported per type: generations, failures, average latency and token counts.
+Latency is total wall-clock for the generation, including image generation when
+the reply triggered one.
+
+Below the aggregates, **Recent generations** lists the last 50 calls. The
+*input/output* link on a row shows what was sent to the model and what came
+back — see [Retention](#retention): those bodies are held in memory only, for
+the last 50 calls since the process started, and never written to disk.
 
 ### Memory & context
 
-Per conversation: estimated context size, the configured context limit, the
-summarization threshold, context pressure, whether a summary is stored, when
-the last summary was produced, and summarization failures. The detail endpoint
-also returns the stored summary text.
+Per conversation: estimated context size against the configured limit,
+context pressure, when the last summary was produced, and summarization
+failures. The detail endpoint also returns the stored summary text.
 
 ### Proactive schedules
 
-Every schedule instance with its character, conversation, transport, trigger,
-origin (`character-card`, `character-tool` or `admin`), timezone, next run,
-last run and last outcome (`sent` / `skipped` / `failed` plus the reason),
-together with the recent execution history. Filter by outcome or enabled state.
+Every schedule instance with its character, conversation, trigger, enabled
+state, next run, last run and last outcome (`sent` / `skipped` / `failed` plus
+the reason).
 
 ### Recent errors
 
@@ -91,8 +97,8 @@ This is deliberately **not** a log viewer. For full detail, read the server log.
   non-English or code-heavy text.
 * **Token counts may be estimates.** AubergeRP asks OpenAI-compatible providers
   for real usage via `stream_options.include_usage`. When the provider reports
-  it, the exact counts are stored and the UI says *reported*. When it does not,
-  the same heuristic is used and the value is marked *(est.)*. Set
+  it, the exact counts are stored; otherwise the same heuristic is used and the
+  API flags the row with `tokens_estimated`. Set
   `stream_usage: false` on a text connector if your provider rejects the field.
 * Uptime, latency, counts and outcomes are exact.
 
@@ -121,8 +127,7 @@ a timeout or a token-limit rejection.
 Find the schedule in the Proactive table. `last_execution_status` tells you what
 happened last, and the reason column distinguishes a deliberate `skipped`
 (`disabled`, `cooldown`, `contextual_skip`) from a real `failed`
-(`generation_failed`, `delivery_failed`, `unexpected_error`). *Recent
-executions* shows the history collected since the last restart.
+(`generation_failed`, `delivery_failed`, `unexpected_error`).
 
 ### Summarization / context pressure
 
@@ -142,9 +147,11 @@ There is no observability datastore and nothing extra is written to disk.
 * **Durable** — LLM activity (`llm_call_stats`) and per-schedule last outcome
   (`schedule_instances`) live in the normal database and persist across
   restarts.
-* **In-memory only** — recent errors, proactive execution history and Telegram
-  runtime counters are bounded ring buffers (200 entries each) held in the
-  process. **They are cleared when the server restarts.**
+* **In-memory only** — recent errors, proactive execution history, Telegram
+  runtime counters (bounded ring buffers, 200 entries each) and the
+  request/response bodies of the last 50 LLM calls (20 000 characters per side,
+  credentials redacted). **They are cleared when the server restarts**, and no
+  prompt or reply text is ever written to disk.
 
 For real history, enable `/metrics` and let Prometheus own retention.
 

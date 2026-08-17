@@ -9,6 +9,7 @@ from typing import Any
 from sqlmodel import Session, select
 
 from ..db_models import ConversationRow, LLMCallStatRow, MessageRow
+from .observability_service import record_payload
 
 
 class StatisticsService:
@@ -44,10 +45,13 @@ class StatisticsService:
         generation_type: str = "chat",
         model: str = "",
         tokens_estimated: bool = True,
+        request_body: str = "",
+        response_body: str = "",
     ) -> None:
         total = max(0, request_tokens) + max(0, response_tokens)
+        call_id = str(uuid.uuid4())
         row = LLMCallStatRow(
-            id=str(uuid.uuid4()),
+            id=call_id,
             conversation_id=conversation_id,
             connector_id=connector_id,
             connector_name=connector_name,
@@ -66,6 +70,10 @@ class StatisticsService:
         with self._get_session() as session:
             session.add(row)
             session.commit()
+        if request_body or response_body:
+            # Memory-only tail, so the dashboard can show what was sent and
+            # what came back.  Never persisted (see observability_service).
+            record_payload(call_id, request_body, response_body)
 
     def get_dashboard_data(self, days: int = 14, top: int = 15) -> dict[str, Any]:
         with self._get_session() as session:

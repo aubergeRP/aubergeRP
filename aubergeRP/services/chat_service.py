@@ -17,7 +17,7 @@ from ..models.conversation import Conversation, Message
 from ..services.character_service import CharacterService
 from ..services.conversation_service import ConversationService, resolve_macros
 from ..services.media_service import GeneratedMedia, MediaService
-from ..services.observability_service import record_error
+from ..services.observability_service import format_messages, record_error
 from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
 from ..services.summarization_service import (
@@ -982,6 +982,8 @@ class ChatService:
                         generation_type=self._generation_type,
                         model=_connector_model(text_connector),
                         tokens_estimated=estimated,
+                        request_body=format_messages(messages),
+                        response_body=full_text,
                     )
 
     async def _stream_with_tools(
@@ -1230,6 +1232,8 @@ class ChatService:
                 generation_type="image_prompt",
                 model=_connector_model(text_connector),
                 tokens_estimated=True,
+                request_body=request_text,
+                response_body=response_text,
             )
         except Exception:
             logger.debug("Failed to record image prompt statistics", exc_info=True)

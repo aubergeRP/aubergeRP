@@ -882,6 +882,14 @@
   padding: 0.45rem 0.35rem;
 }
 
+/* Figures line up on the right, with even digit widths. */
+.stats-table th.num,
+.stats-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .stats-table th {
   color: var(--color-text-muted);
   font-size: 0.76rem;
@@ -954,6 +962,26 @@
   padding: 0.5rem 0.6rem;
 }
 .obs-webhook .obs-muted { display: inline-block; min-width: 9rem; }
+
+/* Request/response bodies of one generation (memory-only, so possibly long). */
+.obs-payload {
+  margin-top: 0.6rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+}
+.obs-pre {
+  margin: 0;
+  max-height: 22rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  background: var(--color-surface2);
+  border-radius: 4px;
+  padding: 0.5rem;
+}
 
 /* ─── Media library section ─────────────────────────────────────────────── */
 

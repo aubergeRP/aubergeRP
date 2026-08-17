@@ -433,6 +433,58 @@ class TestLLMMetrics:
         assert "[REDACTED]" in payload["failures"][0]["error_detail"]
 
 
+class TestLLMPayloads:
+    """Request/response bodies: memory only, bounded, redacted."""
+
+    def test_bodies_are_exposed_for_recorded_calls(self, client, env):
+        _record(env["stats"], env["conv"].id,
+                request_body="[system]\nhello", response_body="hi there")
+        recent = client.get("/api/observability/llm").json()["recent"]
+        assert recent[0]["has_payload"] is True
+
+        payload = client.get(f"/api/observability/llm/{recent[0]['id']}/payload").json()
+        assert payload["available"] is True
+        assert payload["request"] == "[system]\nhello"
+        assert payload["response"] == "hi there"
+
+    def test_call_without_bodies_has_no_payload(self, client, env):
+        _record(env["stats"], env["conv"].id)
+        recent = client.get("/api/observability/llm").json()["recent"]
+        assert recent[0]["has_payload"] is False
+
+        payload = client.get(f"/api/observability/llm/{recent[0]['id']}/payload").json()
+        assert payload["available"] is False
+        assert payload["request"] == ""
+
+    def test_unknown_call_is_reported_as_unavailable(self, client, env):
+        payload = client.get("/api/observability/llm/nope/payload").json()
+        assert payload["available"] is False
+
+    def test_secrets_are_redacted(self, client, env):
+        _record(env["stats"], env["conv"].id,
+                request_body=f"Authorization: Bearer {FAKE_API_KEY}",
+                response_body=f"key {FAKE_API_KEY}")
+        recent = client.get("/api/observability/llm").json()["recent"]
+        payload = client.get(f"/api/observability/llm/{recent[0]['id']}/payload").json()
+        assert FAKE_API_KEY not in payload["request"]
+        assert FAKE_API_KEY not in payload["response"]
+
+    def test_only_the_last_calls_keep_their_bodies(self, client, env):
+        from aubergeRP.services.observability_service import MAX_PAYLOADS
+
+        for i in range(MAX_PAYLOADS + 3):
+            _record(env["stats"], env["conv"].id, request_body=f"req {i}", response_body="r")
+        assert len(get_registry().payload_ids()) == MAX_PAYLOADS
+
+    def test_long_bodies_are_truncated(self, client, env):
+        from aubergeRP.services.observability_service import MAX_PAYLOAD_CHARS
+
+        _record(env["stats"], env["conv"].id, request_body="x" * (MAX_PAYLOAD_CHARS + 500))
+        recent = client.get("/api/observability/llm").json()["recent"]
+        payload = client.get(f"/api/observability/llm/{recent[0]['id']}/payload").json()
+        assert len(payload["request"]) == MAX_PAYLOAD_CHARS + 1  # + the ellipsis
+
+
 # ── Memory / context ────────────────────────────────────────────────────────
 
 class TestMemory:

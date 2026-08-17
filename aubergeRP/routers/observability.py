@@ -84,6 +84,15 @@ def get_llm(
     )
 
 
+@router.get("/llm/{call_id}/payload")
+def get_llm_payload(
+    call_id: str,
+    _token: str = Depends(get_admin_token),
+) -> dict[str, Any]:
+    """Request/response bodies of one LLM call, kept in memory only."""
+    return get_observability_service().get_llm_payload(call_id)
+
+
 @router.get("/memory")
 def get_memory(
     limit: int = Query(default=50, ge=1, le=500),

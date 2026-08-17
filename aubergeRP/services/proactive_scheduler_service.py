@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from ..db_models import ScheduleInstanceRow
 from ..services.delivery_service import make_delivery_adapter
-from ..services.observability_service import get_registry, record_error
+from ..services.observability_service import format_messages, get_registry, record_error
 from ..services.summarization_service import effective_limits
 
 if TYPE_CHECKING:
@@ -98,6 +98,8 @@ class ProactiveScheduler:
                 generation_type="proactive",
                 model=str(getattr(getattr(connector, "config", None), "model", "") or ""),
                 tokens_estimated=estimated,
+                request_body=format_messages(messages),
+                response_body=response_text,
             )
         except Exception:  # pragma: no cover
             logger.debug("ProactiveScheduler: failed to record statistics", exc_info=True)

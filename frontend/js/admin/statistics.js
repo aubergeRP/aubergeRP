@@ -1,11 +1,12 @@
 import { drawBarChart } from '/vendor/simple-charts.js';
 
+//: Single, fixed reporting window — one less knob on the page.
+const RANGE_DAYS = 14;
+
 const feedbackEl = document.getElementById('stats-feedback');
 const summaryEl = document.getElementById('stats-summary');
-const rangeEl = document.getElementById('stats-range-days');
 const refreshBtn = document.getElementById('refresh-stats-btn');
 const timelineCanvas = document.getElementById('stats-timeline-chart');
-const connectorCanvas = document.getElementById('stats-connector-chart');
 const connectorsTableWrap = document.getElementById('stats-connectors-table-wrap');
 const conversationsTableWrap = document.getElementById('stats-conversations-table-wrap');
 
@@ -27,7 +28,6 @@ async function apiFetch(path) {
 export function initStatistics({ showToast }) {
   showToastFn = showToast;
   refreshBtn.addEventListener('click', refresh);
-  rangeEl.addEventListener('change', refresh);
   window.addEventListener('resize', redrawCharts);
   return { refresh };
 }
@@ -40,9 +40,8 @@ async function refresh() {
   connectorsTableWrap.innerHTML = '';
   conversationsTableWrap.innerHTML = '';
 
-  const days = parseInt(rangeEl.value, 10) || 14;
   try {
-    const payload = await apiFetch(`/api/statistics/?days=${days}&top=15`);
+    const payload = await apiFetch(`/api/statistics/?days=${RANGE_DAYS}&top=15`);
     latestPayload = payload;
     renderSummary(payload.summary || {});
     renderTables(payload);
@@ -58,7 +57,6 @@ async function refresh() {
 function redrawCharts() {
   if (!latestPayload) return;
   renderTimelineChart(latestPayload.timeline || []);
-  renderConnectorChart(latestPayload.by_connector || []);
 }
 
 function renderSummary(summary) {
@@ -67,10 +65,8 @@ function renderSummary(summary) {
     { label: 'Conversations', value: formatInt(summary.total_conversations) },
     { label: 'LLM Calls', value: formatInt(summary.llm_calls) },
     { label: 'Success Rate', value: `${Number(summary.success_rate || 0).toFixed(1)}%` },
-    { label: 'Tokens In', value: formatInt(summary.tokens_in) },
-    { label: 'Tokens Out', value: formatInt(summary.tokens_out) },
     { label: 'Total Tokens', value: formatInt(summary.total_tokens) },
-    { label: 'Avg Latency', value: `${Number(summary.avg_latency_ms || 0).toFixed(1)} ms` },
+    { label: 'Avg Latency', value: `${Math.round(Number(summary.avg_latency_ms || 0))} ms` },
   ];
   summaryEl.innerHTML = cards
     .map(card => `
@@ -93,47 +89,38 @@ function renderTimelineChart(timeline) {
   });
 }
 
-function renderConnectorChart(byConnector) {
-  const top = byConnector.slice(0, 8);
-  const labels = top.map(row => (row.name || row.backend || '(unknown)').slice(0, 14));
-  const values = top.map(row => Number(row.total_tokens || 0));
-  drawBarChart(connectorCanvas, labels, values, {
-    title: 'Top connector token usage',
-    barColor: '#ffb347',
-    labelColor: 'rgba(240,245,255,0.75)',
-    gridColor: 'rgba(240,245,255,0.11)',
-  });
-}
-
 function renderTables(payload) {
   connectorsTableWrap.innerHTML = renderTable(
-    ['Connector', 'Backend', 'Calls', 'Success', 'Failed', 'Tokens In', 'Tokens Out', 'Avg Latency'],
+    ['Connector', 'Backend', 'Calls', 'Failed', 'Tokens In', 'Tokens Out', 'Avg Latency'],
     (payload.by_connector || []).map(row => [
       row.name || '(unknown)',
       row.backend || '(unknown)',
-      formatInt(row.llm_calls),
-      formatInt(row.success),
-      formatInt(row.failed),
-      formatInt(row.tokens_in),
-      formatInt(row.tokens_out),
-      `${Number(row.avg_latency_ms || 0).toFixed(1)} ms`,
+      num(formatInt(row.llm_calls)),
+      num(formatInt(row.failed)),
+      num(formatInt(row.tokens_in)),
+      num(formatInt(row.tokens_out)),
+      num(`${Math.round(Number(row.avg_latency_ms || 0))} ms`),
     ]),
     'No connector usage recorded yet.'
   );
 
   conversationsTableWrap.innerHTML = renderTable(
-    ['Conversation', 'Messages', 'LLM Calls', 'Tokens In', 'Tokens Out', 'Total', 'Avg Latency'],
+    ['Conversation', 'Messages', 'LLM Calls', 'Tokens In', 'Tokens Out', 'Avg Latency'],
     (payload.by_conversation || []).map(row => [
       row.title || row.conversation_id,
-      formatInt(row.message_count),
-      formatInt(row.llm_calls),
-      formatInt(row.tokens_in),
-      formatInt(row.tokens_out),
-      formatInt(row.total_tokens),
-      `${Number(row.avg_latency_ms || 0).toFixed(1)} ms`,
+      num(formatInt(row.message_count)),
+      num(formatInt(row.llm_calls)),
+      num(formatInt(row.tokens_in)),
+      num(formatInt(row.tokens_out)),
+      num(`${Math.round(Number(row.avg_latency_ms || 0))} ms`),
     ]),
     'No conversation usage recorded yet.'
   );
+}
+
+// Cells wrapped in num() are right-aligned, header included.
+function num(value) {
+  return { num: true, value: String(value) };
 }
 
 function renderTable(headers, rows, emptyMessage) {
@@ -141,9 +128,15 @@ function renderTable(headers, rows, emptyMessage) {
     return `<div class="loading-row">${escHtml(emptyMessage)}</div>`;
   }
 
-  const thead = `<thead><tr>${headers.map(h => `<th>${escHtml(h)}</th>`).join('')}</tr></thead>`;
+  const numeric = new Set();
+  rows.forEach(cols => cols.forEach((c, i) => { if (c && c.num) numeric.add(i); }));
+  const cls = i => (numeric.has(i) ? ' class="num"' : '');
+  const thead = `<thead><tr>${headers
+    .map((h, i) => `<th${cls(i)}>${escHtml(h)}</th>`).join('')}</tr></thead>`;
   const tbody = `<tbody>${rows
-    .map(cols => `<tr>${cols.map(c => `<td>${escHtml(c)}</td>`).join('')}</tr>`)
+    .map(cols => `<tr>${cols
+      .map((c, i) => `<td${cls(i)}>${escHtml(c && c.num ? c.value : c)}</td>`)
+      .join('')}</tr>`)
     .join('')}</tbody>`;
 
   return `<div class="stats-table-wrap"><table class="stats-table">${thead}${tbody}</table></div>`;

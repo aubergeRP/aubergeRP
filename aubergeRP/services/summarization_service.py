@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from ..connectors.base import TextConnector
     from ..services.statistics_service import StatisticsService
 
-from ..services.observability_service import record_error
+from ..services.observability_service import format_messages, record_error
 from ..services.prompt_service import get_prompt
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,8 @@ def _record_summarization_call(
 
     Summarization used to be invisible in the statistics even though it is a
     full LLM round-trip.  Recording it under its own ``generation_type`` keeps
-    the accounting honest without storing any prompt or summary text.
+    the accounting honest.  The prompt and the summary are handed to the
+    memory-only payload tail (never persisted) so Operations can show them.
     """
     if statistics_service is None or not conversation_id:
         return
@@ -171,6 +172,8 @@ def _record_summarization_call(
             generation_type="summarization",
             model=str(getattr(getattr(connector, "config", None), "model", "") or ""),
             tokens_estimated=estimated,
+            request_body=format_messages(prompt),
+            response_body=summary_text,
         )
     except Exception:  # pragma: no cover - statistics must never break chat
         logger.debug("Failed to record summarization statistics", exc_info=True)

@@ -23,7 +23,7 @@ from __future__ import annotations
 import contextlib
 import re
 import threading
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +47,11 @@ from ..db_models import (
 # log store.
 MAX_ERRORS = 200
 MAX_EXECUTIONS = 200
+#: How many LLM request/response bodies are kept for the dashboard.  These are
+#: the heaviest thing in the registry, hence the tight bound.
+MAX_PAYLOADS = 50
+#: Per-side character cap for a stored request/response body.
+MAX_PAYLOAD_CHARS = 20000
 
 
 #: Instant the process started; the basis for the uptime reading.
@@ -109,7 +114,7 @@ def reset_secrets() -> None:
         _known_secrets.clear()
 
 
-def redact(text: str | None) -> str:
+def redact(text: str | None, *, max_len: int = _MAX_SUMMARY_LEN) -> str:
     """Return *text* with credentials removed and length bounded."""
     if not text:
         return ""
@@ -125,9 +130,18 @@ def redact(text: str | None) -> str:
     result = _AUTH_HEADER_RE.sub(f"Authorization: {_REDACTED}", result)
     result = _BEARER_RE.sub(f"Bearer {_REDACTED}", result)
     result = _QUERY_SECRET_RE.sub(rf"\1{_REDACTED}", result)
-    if len(result) > _MAX_SUMMARY_LEN:
-        result = result[:_MAX_SUMMARY_LEN] + "…"
+    if len(result) > max_len:
+        result = result[:max_len] + "…"
     return result
+
+
+def format_messages(messages: list[dict[str, Any]] | None) -> str:
+    """Render a chat-completion message list as plain text for the dashboard."""
+    if not messages:
+        return ""
+    return "\n\n".join(
+        f"[{m.get('role', '?')}]\n{m.get('content', '')}" for m in messages
+    )
 
 
 def mask_identifier(value: str | None) -> str:
@@ -197,6 +211,21 @@ class ExecutionRecord:
 
 
 @dataclass
+class LLMPayload:
+    """The request/response bodies of one LLM call, redacted and truncated.
+
+    Memory only: never persisted, lost on restart, and bounded to the last
+    :data:`MAX_PAYLOADS` calls.
+    """
+
+    request: str = ""
+    response: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"request": self.request, "response": self.response}
+
+
+@dataclass
 class TelegramRuntimeStats:
     """In-memory runtime counters for one Telegram bot."""
 
@@ -243,6 +272,7 @@ class RuntimeRegistry:
         self._errors: deque[OperationalError] = deque(maxlen=MAX_ERRORS)
         self._executions: deque[ExecutionRecord] = deque(maxlen=MAX_EXECUTIONS)
         self._telegram: dict[str, TelegramRuntimeStats] = {}
+        self._payloads: OrderedDict[str, LLMPayload] = OrderedDict()
 
     # ── errors ───────────────────────────────────────────────────────────
 
@@ -343,6 +373,30 @@ class RuntimeRegistry:
             counts[entry.status] = counts.get(entry.status, 0) + 1
         return counts
 
+    # ── LLM payloads ─────────────────────────────────────────────────────
+
+    def record_payload(self, call_id: str, request: str, response: str) -> None:
+        """Keep the bodies of LLM call *call_id*, evicting the oldest entry."""
+        if not call_id:
+            return
+        entry = LLMPayload(
+            request=redact(request, max_len=MAX_PAYLOAD_CHARS),
+            response=redact(response, max_len=MAX_PAYLOAD_CHARS),
+        )
+        with self._lock:
+            self._payloads[call_id] = entry
+            self._payloads.move_to_end(call_id)
+            while len(self._payloads) > MAX_PAYLOADS:
+                self._payloads.popitem(last=False)
+
+    def get_payload(self, call_id: str) -> LLMPayload | None:
+        with self._lock:
+            return self._payloads.get(call_id)
+
+    def payload_ids(self) -> set[str]:
+        with self._lock:
+            return set(self._payloads)
+
     # ── telegram runtime ─────────────────────────────────────────────────
 
     def telegram(self, bot_id: str) -> TelegramRuntimeStats:
@@ -395,6 +449,7 @@ class RuntimeRegistry:
             self._errors.clear()
             self._executions.clear()
             self._telegram.clear()
+            self._payloads.clear()
 
 
 _registry = RuntimeRegistry()
@@ -421,6 +476,11 @@ def record_error(
         conversation_id=conversation_id,
         schedule_id=schedule_id,
     )
+
+
+def record_payload(call_id: str, request: str, response: str) -> None:
+    """Module-level shortcut for :meth:`RuntimeRegistry.record_payload`."""
+    _registry.record_payload(call_id, request, response)
 
 
 def uptime_seconds() -> float:
@@ -777,6 +837,7 @@ class ObservabilityService:
         rows = self._llm_rows(filters)
         with self._get_session() as session:
             titles = {c.id: c.title for c in session.exec(select(ConversationRow)).all()}
+        with_payload = _registry.payload_ids()
 
         recent = [
             {
@@ -794,6 +855,7 @@ class ObservabilityService:
                 "tokens_out": row.response_tokens,
                 "tokens_estimated": row.tokens_estimated,
                 "error_detail": redact(row.error_detail),
+                "has_payload": row.id in with_payload,
             }
             for row in rows[: max(1, limit)]
         ]
@@ -819,6 +881,19 @@ class ObservabilityService:
             "failures": failures,
             "range_hours": max(1, hours),
         }
+
+    def get_llm_payload(self, call_id: str) -> dict[str, Any]:
+        """Return the in-memory request/response bodies of one LLM call."""
+        entry = _registry.get_payload(call_id)
+        if entry is None:
+            return {
+                "available": False,
+                "detail": "Bodies are kept in memory only, for the last "
+                          f"{MAX_PAYLOADS} calls since the last restart.",
+                "request": "",
+                "response": "",
+            }
+        return {"available": True, "detail": "", **entry.to_dict()}
 
     # ── memory / context ─────────────────────────────────────────────────
 

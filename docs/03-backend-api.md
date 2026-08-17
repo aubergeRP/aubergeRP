@@ -826,6 +826,22 @@ LLM generation aggregates and the most recent calls.
 
 **Responses:** `200` Successful Response · `422` Validation Error
 
+### `GET /api/observability/llm/{call_id}/payload`
+
+Get Llm Payload
+
+Request/response bodies of one LLM call, kept in memory only.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `call_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
 ### `GET /api/observability/memory`
 
 Get Memory
