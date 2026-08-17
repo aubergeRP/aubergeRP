@@ -544,9 +544,11 @@ function createStreamingMessage() {
       if (labelEl) { labelEl.style.display = 'block'; labelEl.textContent = `${step} / ${total}`; }
       scrollIfPinned();
     },
-    onImageComplete(genId, imageUrl, prompt) {
+    onImageComplete(genId, imageUrl) {
       pendingImages.delete(genId);
-      if (prompt) imagePrompts.set(genId, prompt);
+      // The prompt cached on image_start is deliberately kept: the one carried
+      // by image_complete already has the character prefix applied, and a retry
+      // would apply it a second time.
       const ph = document.getElementById(`img-ph-${genId}`);
       if (ph) {
         ph.replaceWith(createImageElement(imageUrl));
@@ -716,7 +718,7 @@ function dispatchSSEEvent(event, handlers) {
       handlers.onImageProgress(event.generation_id, event.step, event.total);
       break;
     case 'image_complete':
-      handlers.onImageComplete(event.generation_id, event.image_url, event.prompt);
+      handlers.onImageComplete(event.generation_id, event.image_url);
       break;
     case 'image_failed':
       handlers.onImageFailed(event.generation_id, event.detail);

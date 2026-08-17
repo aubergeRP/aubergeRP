@@ -719,6 +719,7 @@ List Media
 | `page` | query | integer | no | Page number (1-based) |
 | `per_page` | query | integer | no | Items per page |
 | `media_type` | query | string | null | no | Filter by media type (image, video, audio) |
+| `x-admin-token` | header | string | no |  |
 
 **Responses:** `200` Successful Response · `422` Validation Error
 

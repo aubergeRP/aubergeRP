@@ -13,9 +13,8 @@
 import { adminFetch } from '/js/admin/auth.js';
 
 async function apiFetch(path, options = {}) {
-  const method = (options.method || 'GET').toUpperCase();
-  const isWrite = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method);
-  const res = isWrite ? await adminFetch(path, options) : await fetch(path, options);
+  // The library exposes generation prompts, so reads are admin-only too.
+  const res = await adminFetch(path, options);
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {
@@ -118,6 +117,7 @@ function renderTable(medias) {
         <tr>
           <th class="col-preview">Preview</th>
           <th class="col-type">Type</th>
+          <th class="col-prompt">Prompt sent to connector</th>
           <th class="col-date">Created</th>
           <th class="col-conv">Conversation</th>
           <th class="col-msg">Message</th>
@@ -138,21 +138,72 @@ function renderRow(media) {
   const msgId     = escHtml(shortId(media.message_id));
   const urlHtml   = `<a href="${escAttr(media.media_url)}" target="_blank" rel="noopener" title="${escAttr(media.media_url)}">${escHtml(truncateUrl(media.media_url))}</a>`;
 
+  const promptHtml = media.prompt
+    ? `<span title="${escAttr(media.prompt)}">${escHtml(truncate(media.prompt, 90))}</span>`
+    : '<span class="media-empty">(none recorded)</span>';
+
   return `
     <tr class="media-row" data-media-id="${escHtml(media.id)}">
       <td class="col-preview">${thumb}</td>
       <td class="col-type">${badge}</td>
+      <td class="col-prompt">${promptHtml}</td>
       <td class="col-date">${date}</td>
       <td class="col-conv" title="${escAttr(media.conversation_id)}">${convId}</td>
       <td class="col-msg"  title="${escAttr(media.message_id)}">${msgId}</td>
       <td class="col-url">${urlHtml}</td>
       <td class="col-actions">
+        <button class="btn btn-secondary btn-sm"
+          data-action="toggle-media-detail"
+          data-media-id="${escHtml(media.id)}"
+          aria-expanded="false"
+          aria-label="Show generation details">Details</button>
         <button class="btn btn-danger btn-sm"
           data-action="delete-media"
           data-media-id="${escHtml(media.id)}"
           aria-label="Delete media">Delete</button>
       </td>
+    </tr>
+    <tr class="media-detail-row" data-detail-for="${escHtml(media.id)}" hidden>
+      <td colspan="8">${renderDetail(media)}</td>
     </tr>`;
+}
+
+/**
+ * Render the image generation pipeline, step by step, so an admin can tell
+ * whether the character prefix and negative prompt were really applied.
+ */
+function renderDetail(media) {
+  const hasTrace = media.raw_prompt || media.llm_input_prompt
+    || media.llm_output_prompt || media.prompt_prefix
+    || media.negative_prompt || media.connector_name;
+
+  if (!hasTrace && !media.prompt) {
+    return '<p class="media-empty">Not recorded (media generated before this was tracked).</p>';
+  }
+
+  const steps = [
+    ['1. Keywords from the roleplay LLM', media.raw_prompt, false],
+    ['2. Prompt sent to the text LLM', media.llm_input_prompt, true],
+    ['3. Answer of the text LLM', media.llm_output_prompt, true],
+    ['4. Character prefix', media.prompt_prefix, false],
+    ['5. Final prompt sent to the connector', media.prompt, true],
+    ['6. Character negative prompt', media.negative_prompt, false],
+    ['7. Image connector', media.connector_name, false],
+  ];
+
+  const body = steps.map(([label, value, block]) => {
+    const content = value
+      ? (block ? `<pre>${escHtml(value)}</pre>` : escHtml(value))
+      : '<span class="media-empty">(none)</span>';
+    return `<dt>${escHtml(label)}</dt><dd>${content}</dd>`;
+  }).join('');
+
+  const legacy = hasTrace
+    ? ''
+    : '<p class="media-empty">Only the final prompt was recorded for this media '
+      + '(generated before the full trace was tracked).</p>';
+
+  return `${legacy}<dl class="media-detail">${body}</dl>`;
 }
 
 function renderThumb(mediaType, mediaUrl, label) {
@@ -273,6 +324,16 @@ async function handleListClick(event) {
     return;
   }
 
+  if (action === 'toggle-media-detail') {
+    const id  = target.getAttribute('data-media-id');
+    const row = listEl?.querySelector(`[data-detail-for="${CSS.escape(id)}"]`);
+    if (row) {
+      row.hidden = !row.hidden;
+      target.setAttribute('aria-expanded', String(!row.hidden));
+    }
+    return;
+  }
+
   if (action === 'delete-media') {
     const mediaId = target.getAttribute('data-media-id');
     if (!mediaId) return;
@@ -323,6 +384,12 @@ function truncateUrl(url) {
   } catch (_) {
     return url;
   }
+}
+
+/** Clip a long prompt so the table stays readable; the full text is in the title. */
+function truncate(text, max) {
+  const str = String(text);
+  return str.length > max ? str.slice(0, max) + '…' : str;
 }
 
 /** Show last 8 chars of a UUID to keep the table narrow. */

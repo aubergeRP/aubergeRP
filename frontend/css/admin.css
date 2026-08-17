@@ -918,7 +918,47 @@
 .col-conv,
 .col-msg      { font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 0.78rem; color: var(--color-text-muted); }
 .col-url      { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col-actions  { width: 80px; text-align: right; }
+.col-prompt   { max-width: 320px; }
+.col-actions  { width: 150px; text-align: right; white-space: nowrap; }
+
+/* Expandable image-generation trace */
+.medias-table tr.media-detail-row:hover td { background: none; }
+
+.media-detail {
+  display: grid;
+  grid-template-columns: minmax(9rem, 14rem) 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  padding: 0.5rem 0.25rem;
+}
+
+.media-detail dt {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.media-detail dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.media-detail pre {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
+.media-empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
 
 /* Thumbnail in table */
 .media-thumb-sm {

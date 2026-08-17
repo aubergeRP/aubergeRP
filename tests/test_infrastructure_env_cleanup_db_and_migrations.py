@@ -319,3 +319,83 @@ def test_custom_migration_loaded_from_data_dir(tmp_path):
         rows = session.exec(select(SchemaMigration)).all()
     versions = [r.version for r in rows]
     assert 2 in versions
+
+
+def test_migration_012_adds_media_generation_columns(tmp_path):
+    """The image generation trace columns exist and survive a re-run."""
+    from sqlalchemy import text
+    from sqlmodel import Session
+
+    from aubergeRP.database import get_engine
+
+    init_db(tmp_path)
+    init_db(tmp_path)  # idempotent: ALTER TABLE must not run twice
+
+    with Session(get_engine(tmp_path)) as session:
+        cols = {
+            row[1]
+            for row in session.execute(text("PRAGMA table_info(media_library)")).all()
+        }
+
+    assert {
+        "raw_prompt",
+        "llm_input_prompt",
+        "llm_output_prompt",
+        "prompt_prefix",
+        "negative_prompt",
+        "connector_name",
+    } <= cols
+
+
+def test_migration_012_preserves_existing_media_rows(tmp_path):
+    """A row created before m012 keeps its prompt and gets empty trace columns."""
+    import uuid
+    from datetime import datetime
+
+    from sqlalchemy import create_engine, text
+    from sqlmodel import Session
+
+    from aubergeRP.migrations import m012_media_generation_details
+
+    # Build the pre-m012 media_library schema so the ALTER TABLE is exercised.
+    engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    with Session(engine) as session:
+        session.execute(
+            text(
+                """
+                CREATE TABLE media_library (
+                    id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL DEFAULT '',
+                    owner TEXT NOT NULL DEFAULT '',
+                    media_type TEXT NOT NULL DEFAULT 'image',
+                    media_url TEXT NOT NULL,
+                    prompt TEXT NOT NULL DEFAULT '',
+                    generated_via_connector BOOLEAN NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+        )
+        session.execute(
+            text(
+                "INSERT INTO media_library (id, conversation_id, message_id, owner, "
+                "media_type, media_url, prompt, generated_via_connector, created_at) "
+                "VALUES (:id, 'c1', 'm1', '', 'image', '/api/images/s/a.png', "
+                "'legacy prompt', 1, :ts)"
+            ),
+            {"id": str(uuid.uuid4()), "ts": datetime.now(UTC).isoformat()},
+        )
+        session.commit()
+
+    with Session(engine) as session:
+        m012_media_generation_details.migrate(session)
+        m012_media_generation_details.migrate(session)  # idempotent
+        session.commit()
+        row = session.execute(
+            text("SELECT prompt, raw_prompt, negative_prompt FROM media_library")
+        ).one()
+
+    assert row[0] == "legacy prompt"
+    assert row[1] == ""
+    assert row[2] == ""

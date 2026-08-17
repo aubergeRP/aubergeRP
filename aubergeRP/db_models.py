@@ -99,7 +99,15 @@ class MediaRow(SQLModel, table=True):
     owner: str = Field(default="", index=True)
     media_type: str = Field(default="image")
     media_url: str
+    # Final prompt actually sent to the image connector (character prefix included).
     prompt: str = ""
+    # Each step of the image generation pipeline, so the admin can audit it.
+    raw_prompt: str = ""
+    llm_input_prompt: str = ""
+    llm_output_prompt: str = ""
+    prompt_prefix: str = ""
+    negative_prompt: str = ""
+    connector_name: str = ""
     generated_via_connector: bool = True
     created_at: datetime
 

@@ -7,7 +7,7 @@ from aubergeRP.main import create_app
 from aubergeRP.models.character import CharacterData
 from aubergeRP.services.character_service import CharacterService
 from aubergeRP.services.conversation_service import ConversationService
-from aubergeRP.services.media_service import MediaService
+from aubergeRP.services.media_service import GeneratedMedia, MediaService
 
 
 def _bootstrap(tmp_path):
@@ -31,7 +31,18 @@ def _bootstrap(tmp_path):
     media_svc.record_generated_media(
         conversation_id=conv.id,
         message_id=msg.id,
-        media_items=[("/api/images/session-1/example.png", "a fantasy tavern at dusk")],
+        media_items=[
+            GeneratedMedia(
+                media_url="/api/images/session-1/example.png",
+                prompt="oil painting, a fantasy tavern at dusk",
+                raw_prompt="tavern",
+                llm_input_prompt="## Character\nName: Mina",
+                llm_output_prompt="a fantasy tavern at dusk",
+                prompt_prefix="oil painting,",
+                negative_prompt="blurry, watermark",
+                connector_name="ComfyUI",
+            )
+        ],
     )
 
     return conv_svc
@@ -53,8 +64,15 @@ def test_media_list_endpoint_returns_prompt(tmp_path):
     items = payload["items"]
     assert len(items) == 1
     assert items[0]["media_type"] == "image"
-    assert items[0]["prompt"] == "a fantasy tavern at dusk"
+    assert items[0]["prompt"] == "oil painting, a fantasy tavern at dusk"
     assert items[0]["media_url"] == "/api/images/session-1/example.png"
+    # Every pipeline step is exposed so the admin page can display the chain.
+    assert items[0]["raw_prompt"] == "tavern"
+    assert items[0]["llm_input_prompt"].startswith("## Character")
+    assert items[0]["llm_output_prompt"] == "a fantasy tavern at dusk"
+    assert items[0]["prompt_prefix"] == "oil painting,"
+    assert items[0]["negative_prompt"] == "blurry, watermark"
+    assert items[0]["connector_name"] == "ComfyUI"
 
 
 def test_media_list_endpoint_pagination(tmp_path):
@@ -77,7 +95,7 @@ def test_media_list_endpoint_pagination(tmp_path):
         media_svc.record_generated_media(
             conversation_id=conv.id,
             message_id=msg.id,
-            media_items=[(f"/api/images/session-2/{fname}", f"prompt {i}")],
+            media_items=[GeneratedMedia(media_url=f"/api/images/session-2/{fname}", prompt=f"prompt {i}")],
         )
 
     app = create_app()
@@ -115,12 +133,12 @@ def test_media_list_endpoint_filter_by_type(tmp_path):
     media_svc.record_generated_media(
         conversation_id=conv.id,
         message_id=msg.id,
-        media_items=[("/api/images/session-3/img.png", "image prompt")],
+        media_items=[GeneratedMedia(media_url="/api/images/session-3/img.png", prompt="image prompt")],
     )
     media_svc.record_generated_media(
         conversation_id=conv.id,
         message_id=msg.id,
-        media_items=[("/api/images/session-3/clip.mp4", "video prompt")],
+        media_items=[GeneratedMedia(media_url="/api/images/session-3/clip.mp4", prompt="video prompt")],
     )
 
     app = create_app()
