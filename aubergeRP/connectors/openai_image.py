@@ -13,6 +13,32 @@ from .base import ImageConnector
 
 logger = logging.getLogger(__name__)
 
+#: Reference images are sent inline in the JSON body; keep them small.
+_REFERENCE_MAX_SIZE = (512, 512)
+_REFERENCE_JPEG_QUALITY = 90
+
+
+def _compress_reference_image(raw: bytes) -> tuple[bytes, str]:
+    """Downscale *raw* to fit 512x512, re-encoded as quality-90 JPEG.
+
+    Returns the bytes and their MIME type; on failure the original bytes are
+    returned unchanged (as PNG) rather than losing img2img altogether.
+    """
+    from io import BytesIO
+
+    from PIL import Image
+
+    try:
+        with Image.open(BytesIO(raw)) as img:
+            rgb = img.convert("RGB")
+            rgb.thumbnail(_REFERENCE_MAX_SIZE)
+            buffer = BytesIO()
+            rgb.save(buffer, format="JPEG", quality=_REFERENCE_JPEG_QUALITY)
+            return buffer.getvalue(), "image/jpeg"
+    except Exception:
+        logger.warning("Could not compress the reference image; sending it as-is", exc_info=True)
+        return raw, "image/png"
+
 
 class OpenAIImageConnector(ImageConnector):
     backend_id = "openai_api"
@@ -93,10 +119,16 @@ class OpenAIImageConnector(ImageConnector):
         return f"{context} HTTP {response.status_code}"
 
     def _image_data_url(self, reference_image: bytes | None) -> str | None:
-        """Encode the reference image as a data URL, when img2img is enabled."""
+        """Encode the reference image as a data URL, when img2img is enabled.
+
+        The portrait is downscaled and re-encoded as JPEG first: a full-size
+        PNG data URL easily pushes the request past the provider's body limit
+        (HTTP 413).
+        """
         if not self.config.image_support or not reference_image:
             return None
-        return "data:image/png;base64," + base64.b64encode(reference_image).decode()
+        payload, mime = _compress_reference_image(reference_image)
+        return f"data:{mime};base64," + base64.b64encode(payload).decode()
 
     async def _generate_via_openai_images_api(
         self,

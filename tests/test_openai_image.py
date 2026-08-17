@@ -554,5 +554,32 @@ async def test_no_reference_image_sends_nothing_even_when_enabled():
     assert "imageDataUrl" not in body
 
 
+@respx.mock
+async def test_reference_image_downscaled_and_jpeg_encoded():
+    """A real portrait is shrunk to 512x512 and re-encoded to keep bodies small."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (2048, 1536), "red").save(buffer, format="PNG")
+    portrait = buffer.getvalue()
+
+    route = respx.post(f"{BASE_OPENAI_COMPAT}/images/generations").respond(
+        200, json={"data": [{"b64_json": base64.b64encode(FAKE_PNG).decode()}]}
+    )
+    conn = make_connector(base_url=BASE_OPENAI_COMPAT, image_support=True)
+    await conn.generate_image("a red apple", reference_image=portrait)
+
+    body = json.loads(route.calls[0].request.content)
+    prefix = "data:image/jpeg;base64,"
+    assert body["imageDataUrl"].startswith(prefix)
+    sent = base64.b64decode(body["imageDataUrl"][len(prefix):])
+    with Image.open(BytesIO(sent)) as img:
+        assert img.format == "JPEG"
+        assert img.width <= 512 and img.height <= 512
+    assert len(sent) < len(portrait)
+
+
 def test_image_support_defaults_to_false():
     assert make_connector().config.image_support is False

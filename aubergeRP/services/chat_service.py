@@ -1254,6 +1254,47 @@ class ChatService:
         except Exception:
             logger.debug("Failed to record image prompt statistics", exc_info=True)
 
+    def _record_image_call(
+        self,
+        img_connector: Any,
+        *,
+        conversation_id: str,
+        prompt: str,
+        started: float,
+        success: bool,
+        error_detail: str = "",
+    ) -> None:
+        """Log an image generation round-trip so it shows up in Operations.
+
+        Image calls are billed too, and until now nothing recorded them: a
+        failing image backend was invisible in the admin dashboard.
+        """
+        if self._statistics_service is None:
+            return
+        try:
+            connector_id, instance = self._resolve_active_connector("image")
+            self._statistics_service.record_text_call(
+                conversation_id=conversation_id,
+                connector_id=connector_id,
+                connector_name=self._image_connector_name(img_connector),
+                connector_backend=str(
+                    getattr(instance, "backend", "")
+                    or getattr(img_connector, "backend_id", "")
+                ),
+                request_tokens=0,
+                response_tokens=0,
+                response_time_ms=int((perf_counter() - started) * 1000),
+                success=success,
+                error_detail=error_detail,
+                generation_type="image",
+                model=str(getattr(getattr(img_connector, "config", None), "model", "") or ""),
+                tokens_estimated=True,
+                request_body=prompt,
+                response_body="" if success else error_detail,
+            )
+        except Exception:
+            logger.debug("Failed to record image generation statistics", exc_info=True)
+
     def _character_portrait(self, character_id: str) -> bytes | None:
         """Return the character avatar bytes, offered to img2img-capable connectors."""
         try:
@@ -1290,6 +1331,7 @@ class ChatService:
         full_prompt = prompt
         llm_input = ""
         llm_output = ""
+        image_started: float | None = None
         try:
             logger.debug("[Image Gen] Starting image generation for gen_id=%s", gen_id)
             if text_connector is not None and messages is not None:
@@ -1319,6 +1361,7 @@ class ChatService:
                 len(full_prompt),
             )
             img_bytes: bytes | None = None
+            image_started = perf_counter()
             async for event in img_connector.generate_image_with_progress(
                 full_prompt,
                 negative_prompt=negative,
@@ -1334,6 +1377,14 @@ class ChatService:
                 elif event["type"] == "complete":
                     img_bytes = event["bytes"]
             if img_bytes is None:
+                self._record_image_call(
+                    img_connector,
+                    conversation_id=conversation_id,
+                    prompt=full_prompt,
+                    started=image_started,
+                    success=False,
+                    error_detail="no image returned by connector",
+                )
                 record_error(
                     "image",
                     "no image returned by connector",
@@ -1345,6 +1396,13 @@ class ChatService:
                     "detail": IMAGE_FAILURE_MESSAGE,
                 }
                 return
+            self._record_image_call(
+                img_connector,
+                conversation_id=conversation_id,
+                prompt=full_prompt,
+                started=image_started,
+                success=True,
+            )
             self._images_dir.mkdir(parents=True, exist_ok=True)
             filename = f"{uuid.uuid4()}.png"
             (self._images_dir / filename).write_bytes(img_bytes)
@@ -1377,6 +1435,15 @@ class ChatService:
                 gen_id,
                 full_prompt[:200],
             )
+            if image_started is not None:
+                self._record_image_call(
+                    img_connector,
+                    conversation_id=conversation_id,
+                    prompt=full_prompt,
+                    started=image_started,
+                    success=False,
+                    error_detail=str(exc),
+                )
             record_error("image", str(exc), conversation_id=conversation_id)
             yield {
                 "type": "image_failed",

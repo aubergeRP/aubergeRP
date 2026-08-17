@@ -1028,6 +1028,73 @@ class _RecordingImage:
         return {}
 
 
+class _FailingImage:
+    """Image connector whose generation always blows up."""
+
+    connector_type = "image"
+
+    async def generate_image(self, prompt, **kw) -> bytes:
+        raise RuntimeError("HTTP 413 Request Entity Too Large")
+
+    async def generate_image_with_progress(self, prompt, **kw):
+        raise RuntimeError("HTTP 413 Request Entity Too Large")
+        yield  # pragma: no cover - generator marker
+
+    async def test_connection(self) -> dict:
+        return {}
+
+
+def _image_stat_rows(stats_svc):
+    from sqlmodel import select
+
+    from aubergeRP.db_models import LLMCallStatRow
+
+    with stats_svc._get_session() as session:
+        rows = list(session.exec(select(LLMCallStatRow)).all())
+    return [r for r in rows if r.generation_type == "image"]
+
+
+def _stats_chat_service(tmp_path, image_conn):
+    char_svc = CharacterService(data_dir=tmp_path)
+    conv_svc = ConversationService(data_dir=tmp_path, character_service=char_svc)
+    stats_svc = StatisticsService(data_dir=tmp_path)
+    manager = _manager(None, image_conn)
+    manager.get_active_id_for_type.return_value = ""
+    svc = ChatService(
+        conversation_service=conv_svc,
+        character_service=char_svc,
+        connector_manager=manager,
+        images_dir=tmp_path / "images",
+        statistics_service=stats_svc,
+    )
+    return char_svc, svc, stats_svc
+
+
+async def test_image_generation_recorded_in_statistics(tmp_path):
+    char_svc, svc, stats_svc = _stats_chat_service(tmp_path, _RecordingImage())
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+
+    events = await collect(svc._handle_image(char, "gen1", "a forest"))
+
+    assert events[-1]["type"] == "image_complete"
+    rows = _image_stat_rows(stats_svc)
+    assert len(rows) == 1
+    assert rows[0].success is True
+
+
+async def test_failed_image_generation_recorded_in_statistics(tmp_path):
+    char_svc, svc, stats_svc = _stats_chat_service(tmp_path, _FailingImage())
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+
+    events = await collect(svc._handle_image(char, "gen1", "a forest"))
+
+    assert events[-1]["type"] == "image_failed"
+    rows = _image_stat_rows(stats_svc)
+    assert len(rows) == 1
+    assert rows[0].success is False
+    assert "413" in rows[0].error_detail
+
+
 async def test_generate_image_prompt_returns_llm_output(tmp_path):
     text_conn = _FakeText(["enhanced image prompt"])
     char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn)

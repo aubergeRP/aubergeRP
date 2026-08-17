@@ -69,7 +69,7 @@ ERROR_COMPONENTS = (
     "background",
 )
 
-GENERATION_TYPES = ("chat", "proactive", "summarization", "image_prompt")
+GENERATION_TYPES = ("chat", "proactive", "summarization", "image_prompt", "image")
 
 
 # ---------------------------------------------------------------------------
