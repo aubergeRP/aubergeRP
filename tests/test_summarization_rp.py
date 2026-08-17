@@ -309,6 +309,22 @@ def test_build_summary_prompt_includes_previous_summary():
     assert "new turn" in combined
 
 
+def test_build_summary_prompt_names_the_character():
+    """The character name must be injected so the LLM knows who ASSISTANT is."""
+    prompt = _build_summary_prompt(
+        [{"role": "assistant", "content": "hi"}], "", "Elowen"
+    )
+    combined = " ".join(m.get("content", "") for m in prompt)
+    assert "Elowen" in combined
+
+
+def test_build_summary_prompt_without_character_name_stays_generic():
+    """A missing character name must not leave a raw placeholder in the prompt."""
+    prompt = _build_summary_prompt([{"role": "assistant", "content": "hi"}])
+    combined = " ".join(m.get("content", "") for m in prompt)
+    assert "{character_name}" not in combined
+
+
 def test_build_summary_prompt_uses_system_role_first():
     """_build_summary_prompt must start with a system message."""
     prompt = _build_summary_prompt([{"role": "user", "content": "hi"}])

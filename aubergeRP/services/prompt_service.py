@@ -95,7 +95,8 @@ PROMPT_META: dict[str, dict[str, str]] = {
         "label": "Summarization User Prompt",
         "description": (
             "User message sent alongside the summarization system prompt. "
-            "Must contain the {excerpt} placeholder."
+            "Must contain the {excerpt} placeholder; {character_name} is also "
+            "available and names the character behind the ASSISTANT lines."
         ),
     },
     "no_reasoning_instruction": {

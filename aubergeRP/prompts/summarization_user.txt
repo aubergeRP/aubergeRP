@@ -1,5 +1,7 @@
 Compress the following roleplay conversation excerpt into a structured continuity summary. Preserve relationship state, character facts, user facts, promises, key events, conflicts, preferences, ongoing topics, and unresolved threads. Be concise — this will replace the older messages in future context.
 
+In the excerpt, ASSISTANT lines are spoken by the character {character_name}, and USER lines are spoken by the human user. Refer to the character as {character_name} in the summary, never as "assistant".
+
 Excerpt:
 
 {excerpt}

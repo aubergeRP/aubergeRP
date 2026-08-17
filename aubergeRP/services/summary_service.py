@@ -150,6 +150,7 @@ class SummaryService:
             connector,
             previous_summary=previous_text,
             conversation_id=conversation.id,
+            character_name=getattr(conversation, "character_name", "") or "",
             statistics_service=statistics_service,
         )
         if text is None:

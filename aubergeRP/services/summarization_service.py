@@ -97,11 +97,14 @@ def format_summary_message(summary_text: str) -> str:
 def _build_summary_prompt(
     messages: list[dict[str, Any]],
     previous_summary: str = "",
+    character_name: str = "",
 ) -> list[dict[str, Any]]:
     """Construct a prompt that asks the LLM to summarize a conversation excerpt.
 
     *previous_summary* — when set — is prepended to the excerpt so the new
     summary extends the previous one instead of losing everything before it.
+    *character_name* tells the LLM who the ``ASSISTANT`` lines belong to;
+    without it the summaries drift into talking about "the assistant".
     """
     excerpt_lines: list[str] = []
     if previous_summary:
@@ -112,9 +115,17 @@ def _build_summary_prompt(
         excerpt_lines.append(f"{role.upper()}: {content}")
     excerpt = "\n\n".join(excerpt_lines)
     user_template = get_prompt("summarization_user")
+    name = character_name.strip() or "the character"
+    try:
+        user_content = user_template.format(excerpt=excerpt, character_name=name)
+    except KeyError:
+        # Admin-customized template with an unknown placeholder: keep going
+        # with the excerpt alone rather than losing the summary entirely.
+        logger.warning("summarization_user prompt has an unknown placeholder")
+        user_content = user_template.replace("{excerpt}", excerpt)
     return [
         {"role": "system", "content": get_prompt("summarization_system")},
-        {"role": "user", "content": user_template.format(excerpt=excerpt)},
+        {"role": "user", "content": user_content},
     ]
 
 
@@ -171,6 +182,7 @@ async def summarize_excerpt(
     *,
     previous_summary: str = "",
     conversation_id: str = "",
+    character_name: str = "",
     statistics_service: StatisticsService | None = None,
 ) -> str | None:
     """Summarize *excerpt* with the LLM, returning ``None`` when it fails.
@@ -178,7 +190,7 @@ async def summarize_excerpt(
     The call is non-streaming (chunks are collected) and always recorded in
     the statistics under ``generation_type="summarization"``.
     """
-    summary_prompt = _build_summary_prompt(excerpt, previous_summary)
+    summary_prompt = _build_summary_prompt(excerpt, previous_summary, character_name)
     summary_text = ""
     started = perf_counter()
     try:
