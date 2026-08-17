@@ -659,6 +659,19 @@ async def test_generate_reply_non_streaming(tmp_path):
     assert any(m["role"] == "user" and m["content"] == "Hi" for m in text.calls[0])
 
 
+async def test_generate_reply_empty_response_raises_and_drops_message(tmp_path):
+    text = _RecordingText([""])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    reloaded = conv_svc.get_conversation(conv.id)
+    assert [m.role for m in reloaded.messages] == ["user"]
+
+
 async def test_generate_reply_persists_user_and_assistant_messages(tmp_path):
     text = _RecordingText(["Assistant reply"])
     char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)

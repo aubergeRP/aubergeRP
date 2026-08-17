@@ -669,10 +669,26 @@ class ChatService:
                 done_event = event
         if done_event is None:
             raise ChatGenerationError("Chat generation did not complete")
+        text = str(done_event.get("full_content", ""))
+        images = list(done_event.get("images", []))
+        if not text.strip() and not images:
+            # Non-streaming transports (Telegram, proactive delivery) have
+            # nothing to send: Telegram rejects empty text outright.  Treat it
+            # as a generation failure and drop the empty assistant message so
+            # it does not pollute the conversation history.
+            message_id = str(done_event.get("message_id", ""))
+            if message_id:
+                with suppress(Exception):
+                    self._conversation_service.delete_message(
+                        conversation_id, message_id
+                    )
+            record_error("llm", "empty reply from model",
+                         conversation_id=conversation_id)
+            raise ChatGenerationError("The model returned an empty response")
         return GenerationResult(
-            text=str(done_event.get("full_content", "")),
+            text=text,
             message_id=str(done_event.get("message_id", "")),
-            images=list(done_event.get("images", [])),
+            images=images,
         )
 
     async def stream_chat(

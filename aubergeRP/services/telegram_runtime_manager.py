@@ -136,7 +136,13 @@ async def chat_action(bot: Bot, chat_id: str, action: str = "typing") -> AsyncIt
 
 
 def split_message(text: str, max_len: int = _TG_MAX_LEN) -> list[str]:
-    """Split a long text into chunks ≤ max_len, preferring paragraph breaks."""
+    """Split a long text into chunks ≤ max_len, preferring paragraph breaks.
+
+    Blank chunks are dropped: Telegram rejects empty message text, so an empty
+    reply must yield no chunks at all rather than one unsendable chunk.
+    """
+    if not text.strip():
+        return []
     if len(text) <= max_len:
         return [text]
 
@@ -155,7 +161,7 @@ def split_message(text: str, max_len: int = _TG_MAX_LEN) -> list[str]:
         remaining = remaining[idx:]
     if remaining:
         parts.append(remaining)
-    return parts
+    return [p for p in parts if p.strip()]
 
 
 class TelegramRuntimeManager:

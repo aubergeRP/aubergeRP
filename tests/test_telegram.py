@@ -461,6 +461,17 @@ def test_split_message_short():
     assert split_message("hello") == ["hello"]
 
 
+@pytest.mark.parametrize("text", ["", "   ", "\n\n"])
+def test_split_message_blank_yields_no_chunks(text):
+    assert split_message(text) == []
+
+
+def test_split_message_drops_blank_chunks():
+    long_text = "A" * 3000 + "\n\n" + " " * 2000
+    parts = split_message(long_text)
+    assert all(p.strip() for p in parts)
+
+
 def test_split_message_at_paragraph_boundary():
     long_text = "A" * 3000 + "\n\n" + "B" * 2000
     parts = split_message(long_text)

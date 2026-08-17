@@ -199,6 +199,23 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
             )
             return
 
+        # Split long messages the same way the runtime manager does.
+        from ..services.telegram_runtime_manager import split_message
+
+        chunks = split_message(message_text)
+        if not chunks:
+            # Nothing sendable — Telegram rejects empty text outright.
+            logger.warning(
+                "TelegramDeliveryAdapter: empty message for bot %s; skipping delivery",
+                channel_instance_id,
+            )
+            record_error(
+                "telegram_delivery",
+                "empty message; proactive delivery skipped",
+                bot_id=channel_instance_id,
+            )
+            return
+
         bot = Bot(token=token)
         try:
             chat_id_int = int(external_chat_id)
@@ -214,11 +231,8 @@ class TelegramDeliveryAdapter(DeliveryAdapter):
             )
             return
 
-        # Split long messages the same way the runtime manager does.
-        from ..services.telegram_runtime_manager import split_message
-
         try:
-            for chunk in split_message(message_text):
+            for chunk in chunks:
                 await bot.send_message(chat_id=chat_id_int, text=chunk)
         except Exception:
             # Re-raised so the caller can record the execution as failed —
