@@ -9,7 +9,24 @@ ConnectorType = Literal["text", "image", "video", "audio"]
 ConnectorBackend = Literal["openai_api", "comfyui"]
 
 
-class OpenAITextConfig(BaseModel):
+class CustomJSONConfig(BaseModel):
+    """Base for connector configs exposing a free-form ``custom_json`` field.
+
+    The dict is merged at the root of the outgoing request payload with the
+    LOWEST priority: every value computed by aubergeRP overrides it.
+    """
+
+    custom_json: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("custom_json", mode="before")
+    @classmethod
+    def coerce_custom_json(cls, v: Any) -> Any:
+        if v == "" or v is None:
+            return {}
+        return v
+
+
+class OpenAITextConfig(CustomJSONConfig):
     base_url: str = "http://localhost:11434/v1"
     api_key: str = ""
     model: str = "llama3"
@@ -38,7 +55,7 @@ class OpenAITextConfig(BaseModel):
         return v
 
 
-class OpenAIImageConfig(BaseModel):
+class OpenAIImageConfig(CustomJSONConfig):
     base_url: str = "https://openrouter.ai/api/v1"
     api_key: str = ""
     model: str = "google/gemini-2.0-flash-exp:free"
@@ -47,7 +64,7 @@ class OpenAIImageConfig(BaseModel):
     max_retries: int = Field(default=3, ge=0, le=10)
 
 
-class ComfyUIConfig(BaseModel):
+class ComfyUIConfig(CustomJSONConfig):
     base_url: str = "http://localhost:8188"
     workflow: str = "default"
     timeout: int = 300

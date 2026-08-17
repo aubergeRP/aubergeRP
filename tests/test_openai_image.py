@@ -453,3 +453,49 @@ def test_format_http_error_non_json_body():
     mock_resp = httpx.Response(503, text="Service Unavailable")
     msg = connector._format_http_error(mock_resp, "[Test]")
     assert "HTTP 503" in msg
+
+
+# ---------------------------------------------------------------------------
+# custom_json
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_custom_json_merged_openai_images_api():
+    route = respx.post(f"{BASE_OPENAI_COMPAT}/images/generations").respond(
+        200, json={"data": [{"b64_json": base64.b64encode(FAKE_PNG).decode()}]}
+    )
+    conn = make_connector(
+        base_url=BASE_OPENAI_COMPAT,
+        model="dall-e-3",
+        custom_json={"quality": "hd", "model": "ignored", "n": 5},
+    )
+    await conn.generate_image("a red apple")
+    body = json.loads(route.calls[0].request.content)
+    assert body["quality"] == "hd"
+    # Computed values win over custom_json.
+    assert body["model"] == "dall-e-3"
+    assert body["n"] == 1
+
+
+@respx.mock
+async def test_custom_json_merged_openrouter_chat_api():
+    route = respx.post(f"{BASE_OPENROUTER}/chat/completions").respond(
+        200,
+        json={
+            "choices": [
+                {"message": {"images": [{"image_url": {"url": IMAGE_URL}}]}}
+            ]
+        },
+    )
+    respx.get(IMAGE_URL).respond(200, content=FAKE_PNG)
+    conn = make_connector(custom_json={"provider": {"order": ["x"]}, "stream": True})
+    await conn.generate_image("a blue sky")
+    body = json.loads(route.calls[0].request.content)
+    assert body["provider"] == {"order": ["x"]}
+    # Computed values win over custom_json.
+    assert body["stream"] is False
+
+
+def test_custom_json_empty_string_coerced():
+    assert make_connector(custom_json="").config.custom_json == {}

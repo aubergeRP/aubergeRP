@@ -51,13 +51,16 @@ class OpenAITextConnector(TextConnector):
         the connector config specifies them, to avoid sending nulls to APIs
         that reject unknown fields.
         """
-        payload: dict[str, Any] = {
+        # custom_json is the lowest-priority layer: everything computed below
+        # overrides it.
+        payload: dict[str, Any] = dict(self.config.custom_json or {})
+        payload.update({
             "model": model or self.config.model,
             "messages": messages,
             "stream": True,
             "max_tokens": max_tokens if max_tokens is not None else self.config.max_tokens,
             "temperature": temperature if temperature is not None else self.config.temperature,
-        }
+        })
 
         if self.config.stream_usage:
             payload["stream_options"] = {"include_usage": True}

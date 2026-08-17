@@ -342,3 +342,27 @@ async def test_fetch_result_no_outputs_raises(tmp_path: Path) -> None:
     conn = make_connector(tmp_path)
     with pytest.raises(RuntimeError, match="No output image"):
         await conn._fetch_result(PROMPT_ID)
+
+
+# ---------------------------------------------------------------------------
+# custom_json
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_submit_prompt_merges_custom_json(tmp_path: Path) -> None:
+    """custom_json is merged into the /prompt body but cannot override the basics."""
+    route = respx.post(f"{BASE_URL}/prompt").respond(200, json={"prompt_id": PROMPT_ID})
+    conn = make_connector(
+        tmp_path,
+        custom_json={"extra_data": {"foo": 1}, "client_id": "ignored", "prompt": "ignored"},
+    )
+    assert await conn._submit_prompt({"1": {}}, "client-1") == PROMPT_ID
+    body = json.loads(route.calls[0].request.content)
+    assert body["extra_data"] == {"foo": 1}
+    assert body["client_id"] == "client-1"
+    assert body["prompt"] == {"1": {}}
+
+
+def test_custom_json_empty_string_coerced(tmp_path: Path) -> None:
+    assert make_connector(tmp_path, custom_json="").config.custom_json == {}

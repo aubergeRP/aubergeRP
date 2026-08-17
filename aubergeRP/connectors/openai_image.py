@@ -99,12 +99,13 @@ class OpenAIImageConnector(ImageConnector):
         size: str,
         client: httpx.AsyncClient,
     ) -> bytes:
-        payload = {
+        payload: dict[str, Any] = dict(self.config.custom_json or {})
+        payload.update({
             "model": model,
             "prompt": full_prompt,
             "size": size,
             "n": 1,
-        }
+        })
         logger.debug("[OpenAI Images API] Sending: %s", json.dumps(payload, default=str))
         response = await client.post(
             f"{self.config.base_url}/images/generations",
@@ -125,13 +126,14 @@ class OpenAIImageConnector(ImageConnector):
         size: str,
         client: httpx.AsyncClient,
     ) -> bytes:
-        payload: dict[str, Any] = {
+        payload: dict[str, Any] = dict(self.config.custom_json or {})
+        payload.update({
             "model": model,
             "messages": [{"role": "user", "content": full_prompt}],
             "modalities": ["image"],
             "stream": False,
             "image_config": {"size": size},
-        }
+        })
         logger.debug("[OpenRouter Chat API] Model: %s, Size: %s", model, size)
         logger.debug("[OpenRouter Chat API] Payload: %s", json.dumps(payload, default=str))
         response = await client.post(

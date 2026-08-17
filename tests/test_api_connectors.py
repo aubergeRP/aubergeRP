@@ -139,6 +139,13 @@ def test_backends_expose_max_retries_schema(client):
         assert "max_retries" in backend["config_schema"]["common"]
 
 
+def test_backends_expose_custom_json_schema(client):
+    backends = client.get("/api/connectors/backends").json()
+    for backend in backends:
+        field = backend["config_schema"]["common"]["custom_json"]
+        assert field["type"] == "object"
+
+
 def test_create_connector_unknown_backend(client):
     bad = {**TEXT_PAYLOAD, "backend": "unknown_backend"}
     resp = client.post("/api/connectors/", json=bad)

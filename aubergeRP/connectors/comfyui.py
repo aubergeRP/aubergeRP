@@ -163,11 +163,14 @@ class ComfyUIConnector(ImageConnector):
     # ------------------------------------------------------------------
 
     async def _submit_prompt(self, workflow: dict[str, Any], client_id: str) -> str:
+        body: dict[str, Any] = dict(self.config.custom_json or {})
+        body.update({"client_id": client_id, "prompt": workflow})
+
         async def attempt() -> str:
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
                 resp = await client.post(
                     self._http_url("/prompt"),
-                    json={"client_id": client_id, "prompt": workflow},
+                    json=body,
                 )
                 resp.raise_for_status()
                 data = resp.json()
