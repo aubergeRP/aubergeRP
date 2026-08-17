@@ -114,6 +114,7 @@ class ProactiveScheduler:
 
     async def _run(self) -> None:
         try:
+            self._purge_orphan_instances()
             self._recover_startup_locks()
             await self._tick()
         except Exception:
@@ -132,6 +133,17 @@ class ProactiveScheduler:
         svc = ScheduleInstanceService(self._data_dir)
         for row in svc.list_due(now):
             await self._process_instance(row, svc, now)
+
+    def _purge_orphan_instances(self) -> None:
+        """Drop schedule instances whose character no longer exists."""
+        from ..services.character_service import CharacterService
+        from ..services.schedule_instance_service import ScheduleInstanceService
+
+        char_svc = CharacterService(data_dir=self._data_dir)
+        existing = [c.id for c in char_svc.list_characters()]
+        removed = ScheduleInstanceService(self._data_dir).delete_orphan_instances(existing)
+        if removed:
+            logger.warning("ProactiveScheduler: removed %d orphan schedule instance(s)", removed)
 
     def _recover_startup_locks(self, utc_now: datetime | None = None) -> None:
         from ..services.schedule_instance_service import ScheduleInstanceService

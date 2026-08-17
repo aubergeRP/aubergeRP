@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import random
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -655,6 +656,18 @@ class ScheduleInstanceService:
                 raise KeyError(instance_id)
             session.delete(row)
             session.commit()
+
+    def delete_orphan_instances(self, existing_character_ids: Iterable[str]) -> int:
+        """Delete instances whose character no longer exists. Returns the count."""
+        known = set(existing_character_ids)
+        with self._get_session() as session:
+            rows = session.exec(select(ScheduleInstanceRow)).all()
+            orphans = [r for r in rows if r.character_id not in known]
+            for row in orphans:
+                session.delete(row)
+            if orphans:
+                session.commit()
+            return len(orphans)
 
     def delete_for_character(self, character_id: str) -> int:
         with self._get_session() as session:

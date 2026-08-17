@@ -419,3 +419,23 @@ def test_translate_character_not_found(client, monkeypatch):
     _patch_connector(monkeypatch, _FakeTextConnector('{"description": "x"}'))
     resp = client.post("/api/characters/bad-id/translate", json={"language": "French"})
     assert resp.status_code == 404
+
+
+def test_delete_character_removes_its_schedules(client, tmp_path):
+    from aubergeRP.config import get_config
+    from aubergeRP.models.character import ScheduleDefinition
+    from aubergeRP.services.schedule_instance_service import ScheduleInstanceService
+
+    card = create_char(client, name="Scheduled")
+    sched_svc = ScheduleInstanceService(get_config().app.data_dir)
+    sched_svc.get_or_create(
+        defn=ScheduleDefinition(id="morning", type="daily_at", time="09:00",
+                                instruction="Say good morning"),
+        character_id=card["id"], conversation_id="conv1", channel="web",
+        channel_instance_id="web", external_user_id="u1", external_chat_id="",
+        timezone="UTC",
+    )
+    assert sched_svc.list_for_character(card["id"])
+
+    assert client.delete(f"/api/characters/{card['id']}").status_code == 204
+    assert sched_svc.list_for_character(card["id"]) == []

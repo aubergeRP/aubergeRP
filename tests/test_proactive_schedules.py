@@ -445,6 +445,30 @@ def _force_next_run_past(svc: ScheduleInstanceService, instance_id: str) -> None
             session.commit()
 
 
+class TestScheduleInstanceCleanup:
+    def _create(self, svc: ScheduleInstanceService, character_id: str, conversation_id: str) -> None:
+        svc.get_or_create(
+            defn=_make_defn(), character_id=character_id, conversation_id=conversation_id,
+            channel="web", channel_instance_id="web", external_user_id="u1",
+            external_chat_id="", timezone="UTC",
+        )
+
+    def test_delete_for_character(self, svc: ScheduleInstanceService) -> None:
+        self._create(svc, "char1", "conv1")
+        self._create(svc, "char2", "conv2")
+        assert svc.delete_for_character("char1") == 1
+        assert svc.list_for_character("char1") == []
+        assert len(svc.list_for_character("char2")) == 1
+
+    def test_delete_orphan_instances(self, svc: ScheduleInstanceService) -> None:
+        self._create(svc, "char1", "conv1")
+        self._create(svc, "char2", "conv2")
+        assert svc.delete_orphan_instances(["char2"]) == 1
+        assert svc.list_for_character("char1") == []
+        assert len(svc.list_for_character("char2")) == 1
+        assert svc.delete_orphan_instances(["char2"]) == 0
+
+
 # ---------------------------------------------------------------------------
 # ProactiveScheduler
 # ---------------------------------------------------------------------------

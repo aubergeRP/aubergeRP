@@ -113,6 +113,9 @@ def delete_character(
         service.delete_character(character_id)
     except CharacterNotFoundError:
         raise _not_found(character_id)
+    # Drop the proactive schedule instances that belonged to this character.
+    from ..services.schedule_instance_service import ScheduleInstanceService
+    ScheduleInstanceService(get_config().app.data_dir).delete_for_character(character_id)
 
 
 @router.get("/{character_id}/avatar")
