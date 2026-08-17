@@ -2,6 +2,7 @@ import { initAdminAuth, adminFetch } from '/js/admin/auth.js?v=2';
 import { initConnectors, applyHealthBadges } from '/js/admin/connectors.js?v=2';
 import { initCharacters } from '/js/admin/characters.js?v=2';
 import { initMedias }    from '/js/admin/medias.js?v=3';
+import { initConversations } from '/js/admin/conversations.js?v=1';
 import { initConfig }     from '/js/admin/config.js?v=2';
 import { initStatistics } from '/js/admin/statistics.js?v=2';
 import { initPrompts }    from '/js/admin/prompts.js?v=2';
@@ -21,7 +22,7 @@ async function main() {
   applyGuiCustomization();
 
   // ── Section routing (hash-based) ────────────────────────────────────────
-  const SECTIONS = ['connectors', 'characters', 'medias', 'health', 'statistics', 'observability', 'config', 'customize', 'prompts', 'summaries', 'telegram'];
+  const SECTIONS = ['connectors', 'characters', 'medias', 'conversations', 'health', 'statistics', 'observability', 'config', 'customize', 'prompts', 'summaries', 'telegram'];
   const sectionEls = {};
   const navBtns = {};
 
@@ -48,6 +49,7 @@ async function main() {
     if (name === 'connectors') connectorCtrl.refresh();
     else if (name === 'characters') charCtrl.refresh();
     else if (name === 'medias') mediaCtrl.refresh();
+    else if (name === 'conversations') convCtrl.refresh();
     else if (name === 'health') loadHealth();
     else if (name === 'statistics') statsCtrl.refresh();
     else if (name === 'observability') obsCtrl.refresh();
@@ -186,6 +188,7 @@ async function main() {
   const connectorCtrl  = initConnectors({ showToast, showConfirm });
   const charCtrl       = initCharacters({ showToast, showConfirm });
   const mediaCtrl      = initMedias({ showToast, showConfirm });
+  const convCtrl       = initConversations({ showToast, showConfirm });
   const statsCtrl      = initStatistics({ showToast });
   const configCtrl     = initConfig({ showToast });
   const promptsCtrl    = initPrompts({ showToast });

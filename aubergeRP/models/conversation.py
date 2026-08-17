@@ -38,3 +38,10 @@ class ConversationSummary(BaseModel):
 
 class ConversationCreate(BaseModel):
     character_id: str
+
+
+class MessageCreate(BaseModel):
+    """Admin-injected message added straight into a conversation history."""
+
+    role: Literal["user", "assistant", "system"] = "assistant"
+    content: str

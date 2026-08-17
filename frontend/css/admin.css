@@ -1519,3 +1519,52 @@
   /* Drop the low-value identifier columns on narrow screens */
   .col-conv { display: none; }
 }
+
+/* ── Conversations section ─────────────────────────────────────────────── */
+
+#conversation-dialog { width: min(90vw, 900px); }
+
+.conversation-messages {
+  max-height: 55vh;
+  overflow-y: auto;
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.conversation-msg {
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.conversation-msg-user      { border-left-color: var(--color-accent, #f4b860); }
+.conversation-msg-assistant { border-left-color: #6aa9ff; }
+.conversation-msg-system    { border-left-color: #999; }
+
+.conversation-msg-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin-bottom: 0.25rem;
+}
+
+.conversation-msg-role { text-transform: uppercase; letter-spacing: 0.05em; }
+
+.conversation-msg-body { white-space: pre-wrap; word-break: break-word; }
+
+.conversation-inject {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.conversation-inject textarea {
+  flex: 1;
+  resize: vertical;
+  font: inherit;
+}

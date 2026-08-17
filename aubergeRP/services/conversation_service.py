@@ -218,6 +218,33 @@ class ConversationService:
                 session.delete(conv_row)
             session.commit()
 
+    def clear_messages(self, conversation_id: str) -> int:
+        """Delete every message of a conversation, keeping the conversation itself.
+
+        Returns the number of deleted messages.
+        """
+        self._load(conversation_id)  # validates existence
+        with self._get_session() as session:
+            msg_rows = list(session.exec(
+                select(MessageRow).where(MessageRow.conversation_id == conversation_id)
+            ).all())
+            for m in msg_rows:
+                session.delete(m)
+            # Stored summaries describe messages that no longer exist.
+            summary_rows = list(session.exec(
+                select(ConversationSummaryRow).where(
+                    ConversationSummaryRow.conversation_id == conversation_id
+                )
+            ).all())
+            for s in summary_rows:
+                session.delete(s)
+            conv_row = session.get(ConversationRow, conversation_id)
+            if conv_row is not None:
+                conv_row.updated_at = datetime.now(UTC)
+                session.add(conv_row)
+            session.commit()
+        return len(msg_rows)
+
     def append_message(
         self,
         conversation_id: str,

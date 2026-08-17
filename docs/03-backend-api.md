@@ -629,6 +629,77 @@ Create Conversation
 
 **Responses:** `201` Successful Response · `422` Validation Error
 
+### `GET /api/conversations/admin/all`
+
+Admin List Conversations
+
+List every conversation, regardless of the owning session.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `character_id` | query | string | null | no |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `200` Successful Response · `422` Validation Error
+
+### `POST /api/conversations/admin/{conversation_id}/messages`
+
+Admin Append Message
+
+Inject a message into a conversation history without calling the LLM.
+
+
+**Request body:**
+
+| Field | Type | Required |
+|---|---|---|
+| `role` | string | no |
+| `content` | string | yes |
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `201` Successful Response · `422` Validation Error
+
+### `DELETE /api/conversations/admin/{conversation_id}/messages`
+
+Admin Clear Messages
+
+Wipe the whole history of a conversation, keeping the conversation.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `204` Successful Response · `422` Validation Error
+
+### `DELETE /api/conversations/admin/{conversation_id}`
+
+Admin Delete Conversation
+
+Delete a conversation owned by any session.
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|---|---|---|---|---|
+| `conversation_id` | path | string | yes |  |
+| `x-admin-token` | header | string | no |  |
+
+**Responses:** `204` Successful Response · `422` Validation Error
+
 ### `GET /api/conversations/{conversation_id}`
 
 Get Conversation

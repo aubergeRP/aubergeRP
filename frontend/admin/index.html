@@ -30,6 +30,7 @@
     <button class="nav-btn active" data-section="connectors" aria-current="page">Connectors</button>
     <button class="nav-btn" data-section="characters">Characters</button>
     <button class="nav-btn" data-section="medias">Medias</button>
+    <button class="nav-btn" data-section="conversations">Conversations</button>
     <button class="nav-btn" data-section="health">Health</button>
     <button class="nav-btn" data-section="statistics">Statistics</button>
     <button class="nav-btn" data-section="observability">Operations</button>
@@ -100,6 +101,40 @@
       <button class="media-lightbox-close" id="media-lightbox-close" aria-label="Close preview">&#x2715;</button>
       <div id="media-lightbox-body" class="media-lightbox-body"></div>
       <div id="media-lightbox-caption" class="media-lightbox-caption"></div>
+    </dialog>
+
+    <!-- ── Conversations ── -->
+    <section id="section-conversations" class="admin-section" style="display:none" aria-label="Conversations">
+      <div class="section-header">
+        <h1>Conversations</h1>
+        <div class="btn-group">
+          <input type="search" id="conversations-filter" class="select-inline"
+                 placeholder="Filter by character or title" aria-label="Filter conversations">
+          <button class="btn btn-secondary" id="refresh-conversations-btn">Refresh</button>
+        </div>
+      </div>
+      <div id="conversations-feedback"></div>
+      <div id="conversations-list" class="medias-table-wrap" aria-live="polite">
+        <div class="loading-row">Loading…</div>
+      </div>
+    </section>
+
+    <!-- ── Conversation history modal ── -->
+    <dialog id="conversation-dialog" class="media-lightbox" aria-label="Conversation history">
+      <button class="media-lightbox-close" id="conversation-dialog-close" aria-label="Close">&#x2715;</button>
+      <div id="conversation-dialog-title" class="media-lightbox-caption"></div>
+      <div id="conversation-messages" class="conversation-messages"></div>
+      <form id="conversation-inject-form" class="conversation-inject">
+        <select id="conversation-inject-role" class="select-inline" aria-label="Message role">
+          <option value="assistant">assistant</option>
+          <option value="user">user</option>
+          <option value="system">system</option>
+        </select>
+        <textarea id="conversation-inject-content" rows="3"
+                  placeholder="Message to inject into the history…"
+                  aria-label="Message content"></textarea>
+        <button type="submit" class="btn btn-primary" id="conversation-inject-btn">Inject</button>
+      </form>
     </dialog>
 
     <!-- ── Health ── -->
