@@ -499,3 +499,60 @@ async def test_custom_json_merged_openrouter_chat_api():
 
 def test_custom_json_empty_string_coerced():
     assert make_connector(custom_json="").config.custom_json == {}
+
+
+# ---------------------------------------------------------------------------
+# image_support (img2img reference portrait)
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+async def test_reference_image_ignored_when_image_support_disabled():
+    route = respx.post(f"{BASE_OPENAI_COMPAT}/images/generations").respond(
+        200, json={"data": [{"b64_json": base64.b64encode(FAKE_PNG).decode()}]}
+    )
+    conn = make_connector(base_url=BASE_OPENAI_COMPAT)
+    await conn.generate_image("a red apple", reference_image=FAKE_PNG)
+    body = json.loads(route.calls[0].request.content)
+    assert "imageDataUrl" not in body
+
+
+@respx.mock
+async def test_reference_image_sent_openai_images_api():
+    route = respx.post(f"{BASE_OPENAI_COMPAT}/images/generations").respond(
+        200, json={"data": [{"b64_json": base64.b64encode(FAKE_PNG).decode()}]}
+    )
+    conn = make_connector(base_url=BASE_OPENAI_COMPAT, image_support=True)
+    await conn.generate_image("a red apple", reference_image=FAKE_PNG)
+    body = json.loads(route.calls[0].request.content)
+    assert body["imageDataUrl"] == (
+        "data:image/png;base64," + base64.b64encode(FAKE_PNG).decode()
+    )
+
+
+@respx.mock
+async def test_reference_image_sent_openrouter_chat_api():
+    route = respx.post(f"{BASE_OPENROUTER}/chat/completions").respond(
+        200,
+        json={"choices": [{"message": {"images": [{"image_url": {"url": IMAGE_URL}}]}}]},
+    )
+    respx.get(IMAGE_URL).respond(200, content=FAKE_PNG)
+    conn = make_connector(image_support=True)
+    await conn.generate_image("a blue sky", reference_image=FAKE_PNG)
+    body = json.loads(route.calls[0].request.content)
+    assert body["imageDataUrl"].startswith("data:image/png;base64,")
+
+
+@respx.mock
+async def test_no_reference_image_sends_nothing_even_when_enabled():
+    route = respx.post(f"{BASE_OPENAI_COMPAT}/images/generations").respond(
+        200, json={"data": [{"b64_json": base64.b64encode(FAKE_PNG).decode()}]}
+    )
+    conn = make_connector(base_url=BASE_OPENAI_COMPAT, image_support=True)
+    await conn.generate_image("a red apple")
+    body = json.loads(route.calls[0].request.content)
+    assert "imageDataUrl" not in body
+
+
+def test_image_support_defaults_to_false():
+    assert make_connector().config.image_support is False

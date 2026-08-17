@@ -1229,6 +1229,15 @@ class ChatService:
         except Exception:
             logger.debug("Failed to record image prompt statistics", exc_info=True)
 
+    def _character_portrait(self, character_id: str) -> bytes | None:
+        """Return the character avatar bytes, offered to img2img-capable connectors."""
+        try:
+            path = self._character_service.get_avatar_path(character_id)
+            return path.read_bytes() if path is not None else None
+        except Exception:
+            logger.debug("Failed to read avatar for character %s", character_id, exc_info=True)
+            return None
+
     async def _handle_image(
         self,
         char: CharacterCard,
@@ -1286,7 +1295,9 @@ class ChatService:
             )
             img_bytes: bytes | None = None
             async for event in img_connector.generate_image_with_progress(
-                full_prompt, negative_prompt=negative
+                full_prompt,
+                negative_prompt=negative,
+                reference_image=self._character_portrait(char.id),
             ):
                 if event["type"] == "progress":
                     yield {

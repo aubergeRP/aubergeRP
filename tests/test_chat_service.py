@@ -1832,3 +1832,44 @@ async def test_image_prompt_call_is_recorded_in_statistics(tmp_path):
     with Session(get_engine(tmp_path)) as session:
         rows = list(session.exec(select(LLMCallStatRow)).all())
     assert any(r.generation_type == "image_prompt" for r in rows)
+
+
+class _ReferenceRecordingImage:
+    """Image connector that records the reference_image it was offered."""
+
+    connector_type = "image"
+
+    def __init__(self) -> None:
+        self.reference_image: bytes | None = b"__unset__"
+
+    async def generate_image(self, prompt, **kw) -> bytes:
+        self.reference_image = kw.get("reference_image")
+        return b"PNG"
+
+    async def generate_image_with_progress(self, prompt, **kw):
+        self.reference_image = kw.get("reference_image")
+        yield {"type": "complete", "bytes": b"PNG"}
+
+    async def test_connection(self) -> dict:
+        return {}
+
+
+async def test_retry_image_offers_character_portrait(tmp_path):
+    img_conn = _ReferenceRecordingImage()
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, _FakeText([]), img_conn)
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    char_svc.save_avatar(char.id, b"AVATAR-PNG")
+    conv = conv_svc.create_conversation(char.id)
+
+    await collect(svc.retry_generate_image(conv.id, "elf ranger", "gen-1"))
+    assert img_conn.reference_image == b"AVATAR-PNG"
+
+
+async def test_retry_image_without_avatar_passes_none(tmp_path):
+    img_conn = _ReferenceRecordingImage()
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, _FakeText([]), img_conn)
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+
+    await collect(svc.retry_generate_image(conv.id, "elf ranger", "gen-1"))
+    assert img_conn.reference_image is None

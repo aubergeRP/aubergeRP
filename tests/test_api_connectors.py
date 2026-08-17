@@ -374,3 +374,10 @@ def test_delete_active_connector_clears_active(client_with_manager):
     assert manager.is_active(created["id"])
     client.delete(f"/api/connectors/{created['id']}")
     assert manager._config.active_connectors.text == ""
+
+
+def test_backends_expose_image_support_schema(client):
+    backends = client.get("/api/connectors/backends").json()
+    openai = next(b for b in backends if b["id"] == "openai_api")
+    field = openai["config_schema"]["by_type"]["image"]["image_support"]
+    assert field["type"] == "boolean"

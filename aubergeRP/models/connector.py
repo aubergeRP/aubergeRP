@@ -60,6 +60,9 @@ class OpenAIImageConfig(CustomJSONConfig):
     api_key: str = ""
     model: str = "google/gemini-2.0-flash-exp:free"
     size: str = "1024x1024"
+    # When enabled, the character portrait is sent alongside the prompt as an
+    # ``imageDataUrl`` data URL so the backend can do img2img.
+    image_support: bool = False
     timeout: int = 120
     max_retries: int = Field(default=3, ge=0, le=10)
 

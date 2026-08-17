@@ -197,6 +197,7 @@ def list_backends() -> list[dict[str, Any]]:
                     },
                     "image": {
                         "size": {"type": "string", "required": False},
+                        "image_support": {"type": "boolean", "required": False},
                     },
                 },
             },
