@@ -1,6 +1,6 @@
 [project]
 name = "aubergeRP"
-version = "0.0.5"
+version = "0.0.6"
 description = "A lightweight roleplay frontend with pluggable connectors for LLM and image generation"
 authors = [{ name = "Olivier Doucet", email = "webmaster@ajeux.com" }]
 keywords = ["roleplay", "llm", "fastapi", "image-generation", "self-hosted"]
