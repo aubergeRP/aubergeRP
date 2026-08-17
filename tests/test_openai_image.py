@@ -197,6 +197,44 @@ async def test_generate_image_openrouter_raises_on_error():
 
 
 @respx.mock
+async def test_generate_image_retries_transient_error_then_succeeds():
+    """A 503 is transient: the request is retried and the image comes through."""
+    data_url = "data:image/png;base64," + base64.b64encode(FAKE_PNG).decode()
+    route = respx.post(f"{BASE_OPENROUTER}/chat/completions").mock(
+        side_effect=[
+            httpx.Response(503),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"images": [{"image_url": {"url": data_url}}]}}
+                    ]
+                },
+            ),
+        ]
+    )
+    result = await make_connector(max_retries=2).generate_image("a red apple")
+    assert result == FAKE_PNG
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_generate_image_does_not_retry_definitive_error():
+    route = respx.post(f"{BASE_OPENROUTER}/chat/completions").respond(400)
+    with pytest.raises(ValueError, match="HTTP 400"):
+        await make_connector(max_retries=3).generate_image("test")
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_generate_image_gives_up_after_max_retries():
+    route = respx.post(f"{BASE_OPENROUTER}/chat/completions").respond(503)
+    with pytest.raises(ValueError, match="HTTP 503"):
+        await make_connector(max_retries=2).generate_image("test")
+    assert route.call_count == 3
+
+
+@respx.mock
 async def test_generate_image_openrouter_400_clean_message():
     """HTTP 400 with JSON error body raises ValueError with clean message (no MDN URL)."""
     error_body = {

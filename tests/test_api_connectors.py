@@ -123,6 +123,22 @@ def test_create_connector_nsfw_defaults_to_false(client):
     assert resp.json()["config"]["nsfw"] is False
 
 
+def test_create_connector_persists_max_retries(client):
+    payload = dict(TEXT_PAYLOAD)
+    payload["config"] = {**payload["config"], "max_retries": 5}
+    resp = client.post("/api/connectors/", json=payload)
+    assert resp.status_code == 201
+    connector_id = resp.json()["id"]
+    stored = client.get(f"/api/connectors/{connector_id}").json()
+    assert stored["config"]["max_retries"] == 5
+
+
+def test_backends_expose_max_retries_schema(client):
+    backends = client.get("/api/connectors/backends").json()
+    for backend in backends:
+        assert "max_retries" in backend["config_schema"]["common"]
+
+
 def test_create_connector_unknown_backend(client):
     bad = {**TEXT_PAYLOAD, "backend": "unknown_backend"}
     resp = client.post("/api/connectors/", json=bad)

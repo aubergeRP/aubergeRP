@@ -180,6 +180,7 @@ def list_backends() -> list[dict[str, Any]]:
                     "api_key": {"type": "string", "required": False},
                     "model": {"type": "string", "required": True},
                     "timeout": {"type": "number", "required": False},
+                    "max_retries": {"type": "number", "required": False},
                     "nsfw": {"type": "boolean", "required": False},
                 },
                 "by_type": {
@@ -207,6 +208,7 @@ def list_backends() -> list[dict[str, Any]]:
                 "common": {
                     "base_url": {"type": "string", "required": True},
                     "timeout": {"type": "number", "required": False},
+                    "max_retries": {"type": "number", "required": False},
                     "nsfw": {"type": "boolean", "required": False},
                 },
                 "by_type": {

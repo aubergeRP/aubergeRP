@@ -9,6 +9,7 @@ from typing import Any, cast
 import httpx
 
 from ..models.connector import ComfyUIConfig
+from ..utils.retry import retry_async
 from .base import ImageConnector
 
 _PROMPT_PLACEHOLDER = "__PROMPT__"
@@ -162,19 +163,24 @@ class ComfyUIConnector(ImageConnector):
     # ------------------------------------------------------------------
 
     async def _submit_prompt(self, workflow: dict[str, Any], client_id: str) -> str:
-        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
-            resp = await client.post(
-                self._http_url("/prompt"),
-                json={"client_id": client_id, "prompt": workflow},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            if not isinstance(data, dict):
-                raise RuntimeError("Invalid ComfyUI /prompt response payload")
-            prompt_id = data.get("prompt_id")
-            if not isinstance(prompt_id, str):
-                raise RuntimeError("ComfyUI /prompt response missing prompt_id")
-            return prompt_id
+        async def attempt() -> str:
+            async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+                resp = await client.post(
+                    self._http_url("/prompt"),
+                    json={"client_id": client_id, "prompt": workflow},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not isinstance(data, dict):
+                    raise RuntimeError("Invalid ComfyUI /prompt response payload")
+                prompt_id = data.get("prompt_id")
+                if not isinstance(prompt_id, str):
+                    raise RuntimeError("ComfyUI /prompt response missing prompt_id")
+                return prompt_id
+
+        return await retry_async(
+            attempt, self.config.max_retries, label="ComfyUI prompt submission"
+        )
 
     async def _poll_until_done(self, prompt_id: str) -> None:
         """Poll GET /history/{prompt_id} until the entry appears."""

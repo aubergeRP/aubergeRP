@@ -9,6 +9,11 @@ class BaseConnector(ABC):
     connector_type: str
     backend_id: str
 
+    @property
+    def max_retries(self) -> int:
+        """How many times a failed request is retried, from the connector config."""
+        return int(getattr(getattr(self, "config", None), "max_retries", 0))
+
     @abstractmethod
     async def test_connection(self) -> dict[str, Any]:
         """Return {'connected': bool, 'details': {...}}."""

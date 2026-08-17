@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from aubergeRP.models.character import CharacterCard, CharacterData
@@ -1542,18 +1543,30 @@ async def test_stream_non_empty_response_no_warning(tmp_path):
 # ---------------------------------------------------------------------------
 
 class _FlakyText:
-    """Fails the first *fail_times* calls, then streams normally."""
+    """Fails the first *fail_times* calls, then streams normally.
+
+    ``max_retries`` mirrors the connector config field the real connectors
+    expose; ChatService reads it to size its retry schedule.
+    """
     connector_type = "text"
 
-    def __init__(self, fail_times: int, token: str = "Hello") -> None:
+    def __init__(
+        self,
+        fail_times: int,
+        token: str = "Hello",
+        max_retries: int = 4,
+        error: Exception | None = None,
+    ) -> None:
         self._fail_times = fail_times
         self._token = token
+        self._error = error or httpx.ConnectError("connection refused")
+        self.max_retries = max_retries
         self.calls = 0
 
     async def stream_chat_completion(self, messages, **kw) -> AsyncIterator[str]:
         self.calls += 1
         if self.calls <= self._fail_times:
-            raise RuntimeError("connection refused")
+            raise self._error
         yield self._token
 
     async def test_connection(self) -> dict:
@@ -1562,13 +1575,17 @@ class _FlakyText:
 
 @pytest.fixture
 def retry_delays(monkeypatch):
+    """Record the backoff waits instead of sleeping through them."""
     from aubergeRP.services import chat_service
+    from aubergeRP.utils import retry
     sleeps: list[float] = []
 
     async def _sleep(delay):
         sleeps.append(delay)
 
-    monkeypatch.setattr(chat_service, "GENERATION_RETRY_DELAYS", (5.0, 20.0, 60.0, 120.0))
+    # conftest zeroes the delays globally; restore them so the schedule is visible.
+    monkeypatch.setattr(retry, "RETRY_BASE_DELAY", 1.0)
+    monkeypatch.setattr(retry, "RETRY_MAX_DELAY", 30.0)
     monkeypatch.setattr(chat_service.asyncio, "sleep", _sleep)
     return sleeps
 
@@ -1583,14 +1600,14 @@ async def test_generate_reply_retries_until_success(tmp_path, retry_delays):
 
     assert result.text == "Hello"
     assert text.calls == 3
-    assert retry_delays == [5.0, 20.0]
+    assert retry_delays == [1.0, 2.0]
     # The user turn is stored exactly once despite the retries.
     reloaded = conv_svc.get_conversation(conv.id)
     assert [m.role for m in reloaded.messages] == ["user", "assistant"]
 
 
 async def test_generate_reply_gives_up_after_five_attempts(tmp_path, retry_delays):
-    text = _FlakyText(fail_times=99)
+    text = _FlakyText(fail_times=99)  # max_retries=4 → 5 attempts total
     char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
     char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
     conv = conv_svc.create_conversation(char.id)
@@ -1599,7 +1616,7 @@ async def test_generate_reply_gives_up_after_five_attempts(tmp_path, retry_delay
         await svc.generate_reply(conv.id, "Hi")
 
     assert text.calls == 5
-    assert retry_delays == [5.0, 20.0, 60.0, 120.0]
+    assert retry_delays == [1.0, 2.0, 4.0, 8.0]
     assert conv_svc.get_conversation(conv.id).messages == []
 
 
@@ -1613,9 +1630,54 @@ async def test_stream_chat_retries_and_emits_retry_events(tmp_path, retry_delays
 
     assert not any(e["type"] == "error" for e in events)
     assert [e for e in events if e["type"] == "retry"] == [
-        {"type": "retry", "attempt": 1, "delay": 5.0}
+        {"type": "retry", "attempt": 1, "delay": 1.0}
     ]
     assert any(e["type"] == "done" for e in events)
+
+
+async def test_retry_count_follows_connector_max_retries(tmp_path, retry_delays):
+    """The connector's own max_retries sizes the retry schedule."""
+    text = _FlakyText(fail_times=99, max_retries=2)
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    assert text.calls == 3
+    assert retry_delays == [1.0, 2.0]
+
+
+async def test_no_retry_when_max_retries_is_zero(tmp_path, retry_delays):
+    text = _FlakyText(fail_times=99, max_retries=0)
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    assert text.calls == 1
+    assert retry_delays == []
+
+
+async def test_no_retry_on_definitive_error(tmp_path, retry_delays):
+    """An invalid API key (HTTP 401) fails immediately instead of being retried."""
+    request = httpx.Request("POST", "http://llm.test/v1/chat/completions")
+    unauthorized = httpx.HTTPStatusError(
+        "unauthorized", request=request, response=httpx.Response(401, request=request)
+    )
+    text = _FlakyText(fail_times=99, max_retries=4, error=unauthorized)
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn=text)
+    char = char_svc.create_character(CharacterData(name="X", description="Y", first_mes=""))
+    conv = conv_svc.create_conversation(char.id)
+
+    with pytest.raises(ChatGenerationError):
+        await svc.generate_reply(conv.id, "Hi")
+
+    assert text.calls == 1
+    assert retry_delays == []
 
 
 async def test_no_retry_when_connector_missing(tmp_path, retry_delays):

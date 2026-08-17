@@ -205,6 +205,33 @@ async def test_generate_image_with_progress_ws_fallback(tmp_path: Path) -> None:
 
 
 @respx.mock
+async def test_submit_prompt_retries_transient_error(tmp_path: Path) -> None:
+    """A 502 on /prompt is retried; a definitive 400 is not."""
+    write_workflow(tmp_path)
+    conn = make_connector(tmp_path, max_retries=2)
+
+    route = respx.post(f"{BASE_URL}/prompt").mock(
+        side_effect=[
+            httpx.Response(502),
+            httpx.Response(200, json={"prompt_id": PROMPT_ID}),
+        ]
+    )
+    assert await conn._submit_prompt({"1": {}}, "client-1") == PROMPT_ID
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_submit_prompt_does_not_retry_definitive_error(tmp_path: Path) -> None:
+    write_workflow(tmp_path)
+    conn = make_connector(tmp_path, max_retries=3)
+
+    route = respx.post(f"{BASE_URL}/prompt").respond(400)
+    with pytest.raises(httpx.HTTPStatusError):
+        await conn._submit_prompt({"1": {}}, "client-1")
+    assert route.call_count == 1
+
+
+@respx.mock
 async def test_generate_image_with_progress_progress_events(tmp_path: Path) -> None:
     """WebSocket progress events are yielded as image_progress dicts."""
     write_workflow(tmp_path)

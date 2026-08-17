@@ -23,6 +23,7 @@ class OpenAITextConfig(BaseModel):
     frequency_penalty: float | None = None
     extra_body: dict[str, Any] = Field(default_factory=dict)
     timeout: int = 120
+    max_retries: int = Field(default=3, ge=0, le=10)
     supports_tool_calling: bool = True
     # Ask the provider to report real token usage at the end of a stream
     # (OpenAI's ``stream_options.include_usage``).  Disable it for providers
@@ -43,12 +44,14 @@ class OpenAIImageConfig(BaseModel):
     model: str = "google/gemini-2.0-flash-exp:free"
     size: str = "1024x1024"
     timeout: int = 120
+    max_retries: int = Field(default=3, ge=0, le=10)
 
 
 class ComfyUIConfig(BaseModel):
     base_url: str = "http://localhost:8188"
     workflow: str = "default"
     timeout: int = 300
+    max_retries: int = Field(default=3, ge=0, le=10)
 
 
 class ConnectorInstance(BaseModel):

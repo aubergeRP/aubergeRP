@@ -22,6 +22,7 @@ from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
 from ..services.summarization_service import count_prompt_tokens, format_summary_message
 from ..services.summary_service import SummaryService
+from ..utils.retry import backoff_delays, is_retryable_error
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,8 @@ IMAGE_FAILURE_MESSAGE = (
     "See Admin → Operations → Recent errors for details."
 )
 
-# Automatic retry schedule (seconds) applied when a generation fails before any
-# content reached the user. Five attempts in total: the initial one plus four
-# spaced retries.
-GENERATION_RETRY_DELAYS: tuple[float, ...] = (1.0, 5.0, 20.0, 60.0)
+#: Retries used when no text connector is available to state its own limit.
+DEFAULT_GENERATION_MAX_RETRIES = 3
 
 
 @dataclass(slots=True)
@@ -638,6 +637,14 @@ class ChatService:
         ):
             yield event
 
+    def _generation_max_retries(self) -> int:
+        """Retry budget of the active text connector."""
+        with suppress(Exception):
+            conn = self._role_connector("text", None)
+            if conn is not None:
+                return int(conn.max_retries)
+        return DEFAULT_GENERATION_MAX_RETRIES
+
     async def _generate_events_with_retry(
         self,
         conversation_id: str,
@@ -650,7 +657,7 @@ class ChatService:
         yet: once tokens or images have been streamed, the partial reply is the
         user-visible state and restarting would duplicate it.
         """
-        delays = GENERATION_RETRY_DELAYS
+        delays = backoff_delays(self._generation_max_retries())
         for attempt in range(len(delays) + 1):
             is_last = attempt == len(delays)
             emitted_content = False
@@ -902,9 +909,10 @@ class ChatService:
                     "An error occurred while generating a response. "
                     "Please check the server logs for details."
                 ),
-                # Provider/network failures are worth retrying; configuration
-                # errors yielded earlier are not.
-                "retryable": True,
+                # Network failures, timeouts, 429 and 5xx are worth retrying;
+                # definitive errors (bad request, invalid API key) are not, and
+                # neither are the configuration errors yielded earlier.
+                "retryable": is_retryable_error(exc),
             }
         finally:
             if self._statistics_service is not None:

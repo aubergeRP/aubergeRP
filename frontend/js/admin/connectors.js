@@ -107,6 +107,7 @@ async function loadBackends() {
           api_key: { type: 'string', required: false },
           model: { type: 'string', required: true },
           timeout: { type: 'number', required: false },
+          max_retries: { type: 'number', required: false },
         },
         by_type: {
           text: {
@@ -356,6 +357,7 @@ function renderConfigFields(backendId, existingConfig) {
       ['api_key', { type: 'string', required: false }],
       ['model', { type: 'string', required: true }],
       ['timeout', { type: 'number', required: false }],
+      ['max_retries', { type: 'number', required: false }],
       ['nsfw', { type: 'boolean', required: false }],
     ];
     const typeEntries = selectedType === 'text'
@@ -513,7 +515,7 @@ function schemaLabel(key) {
   const map = {
     base_url: 'Base URL', api_key: 'API Key', model: 'Model',
     max_tokens: 'Max Tokens', context_window: 'Context Window (tokens)',
-    temperature: 'Temperature', timeout: 'Timeout (s)',
+    temperature: 'Temperature', timeout: 'Timeout (s)', max_retries: 'Max Retries',
     supports_tool_calling: 'Tool Calling', workflow: 'Workflow', nsfw: 'NSFW Content',
     extra_body: 'Extra Body',
   };
@@ -530,6 +532,7 @@ function schemaTooltip(key) {
     temperature: 'Sampling temperature: lower is deterministic, higher is more creative.',
     supports_tool_calling: 'Enable OpenAI-style function/tool calling. Only enable for models that support it.',
     timeout: 'Request timeout in seconds before considering the connector unavailable.',
+    max_retries: 'How many times a failed request is retried (network errors, timeouts, HTTP 429 and 5xx only). Waits double each time: 1s, 2s, 4s, 8s, 16s, capped at 30s. 0 disables retries.',
     size: 'Image size (example: 1024x1024).',
     workflow: 'ComfyUI workflow template used for image generation.',
     nsfw: 'Allow NSFW behavior for this connector. Disabled by default.',

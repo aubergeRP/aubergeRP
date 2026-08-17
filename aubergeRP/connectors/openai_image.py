@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from ..models.connector import OpenAIImageConfig
+from ..utils.retry import ConnectorHTTPError, retry_async
 from .base import ImageConnector
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ class OpenAIImageConnector(ImageConnector):
         if response.status_code >= 400:
             error_msg = self._format_http_error(response, "[OpenAI Images API]")
             logger.error("%s\nPrompt: %s", error_msg, full_prompt[:500])
-            raise ValueError(error_msg)
+            raise ConnectorHTTPError(error_msg, response.status_code)
         item = response.json()["data"][0]
         return await self._extract_image_bytes(item, client)
 
@@ -141,7 +142,7 @@ class OpenAIImageConnector(ImageConnector):
         if response.status_code >= 400:
             error_msg = self._format_http_error(response, "[OpenRouter Chat API]")
             logger.error("%s\nPrompt: %s", error_msg, full_prompt[:500])
-            raise ValueError(error_msg)
+            raise ConnectorHTTPError(error_msg, response.status_code)
 
         data = response.json()
         message = (data.get("choices") or [{}])[0].get("message") or {}
@@ -171,17 +172,22 @@ class OpenAIImageConnector(ImageConnector):
         resolved_model = model or self.config.model
         resolved_size = size or self.config.size or "1024x1024"
 
-        async with httpx.AsyncClient(timeout=self.config.timeout) as client:
-            if self._is_openrouter():
-                return await self._generate_via_openrouter_chat_api(
+        async def attempt() -> bytes:
+            async with httpx.AsyncClient(timeout=self.config.timeout) as client:
+                if self._is_openrouter():
+                    return await self._generate_via_openrouter_chat_api(
+                        full_prompt,
+                        resolved_model,
+                        resolved_size,
+                        client,
+                    )
+                return await self._generate_via_openai_images_api(
                     full_prompt,
                     resolved_model,
                     resolved_size,
                     client,
                 )
-            return await self._generate_via_openai_images_api(
-                full_prompt,
-                resolved_model,
-                resolved_size,
-                client,
-            )
+
+        return await retry_async(
+            attempt, self.config.max_retries, label="Image generation"
+        )
