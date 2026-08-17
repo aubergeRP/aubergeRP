@@ -5,6 +5,7 @@
  */
 
 import { adminFetch } from '/js/admin/auth.js';
+import { closeEditorPage, openEditorPage } from '/js/admin/editor-page.js?v=1';
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -81,7 +82,6 @@ export function initConnectors({ showToast, showConfirm }) {
   backendSelect.addEventListener('change', onBackendChange);
 
   // Close on backdrop click
-  dialog.addEventListener('click', e => { if (e.target === dialog) closeDialog(); });
 
   loadBackends();
   refresh();
@@ -309,12 +309,12 @@ async function openDialog(id) {
     renderConfigFields(backendSelect.value, {});
   }
 
-  dialog.style.display = 'flex';
+  openEditorPage(dialog);
   nameInput.focus();
 }
 
 function closeDialog() {
-  dialog.style.display = 'none';
+  closeEditorPage(dialog);
   editingId = null;
 }
 

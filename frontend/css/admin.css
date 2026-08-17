@@ -377,6 +377,95 @@
   flex-shrink: 0;
 }
 
+/* ─── Full-page editors ─────────────────────────────────────────────────────
+   Edit forms are pages, not layers: no backdrop, no click-outside-to-close, and
+   room to breathe so long forms stay readable. */
+.editor-page {
+  /* Wide enough for two columns of fields, narrow enough to stay readable. */
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+.editor-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.editor-header h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.editor-back { flex-shrink: 0; }
+
+.editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Labels lead their field instead of hugging it, and inputs are tall enough to
+   be comfortable targets. */
+.editor-body .field-row { gap: 0.5rem; }
+
+.editor-body .field-row > label {
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.editor-body .field-row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.editor-body .field-row select,
+.editor-body .field-row textarea {
+  padding: 0.6rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.editor-body .field-hint,
+.editor-body .field-help {
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+/* Group separators become real headings once there is room for them. */
+.editor-body .field-divider {
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text);
+  padding-top: 1.75rem;
+  margin-top: 0.75rem;
+}
+
+/* Multi-line fields are where most of the writing happens. */
+.editor-body .field-row textarea { min-height: 5.5rem; line-height: 1.55; }
+
+.editor-feedback {
+  margin-top: 1.5rem;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding: 1.5rem 0 0.5rem;
+  border-top: 1px solid var(--color-border);
+  /* Save stays reachable without scrolling back down on long forms. */
+  position: sticky;
+  bottom: 0;
+  background: var(--color-bg);
+}
+
 /* ─── Form fields ───────────────────────────────────────────────────────── */
 .field-row {
   display: flex;
@@ -1329,6 +1418,19 @@
   .nav-btn.active { border-left-color: transparent; border-bottom-color: var(--color-accent); }
 
   #admin-content { padding: 1rem 0.85rem calc(1rem + env(safe-area-inset-bottom, 0px)); }
+
+  /* Editor pages tighten up but keep their vertical rhythm. */
+  .editor-header {
+    gap: 0.75rem;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .editor-header h2 { font-size: 1.2rem; }
+  .editor-body { gap: 1.4rem; }
+  .editor-actions {
+    margin-top: 1.5rem;
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
 
   /* Section headers wrap instead of squeezing their buttons */
   .section-header {

@@ -99,6 +99,37 @@ test('mobile: dialogs fit the viewport width', async () => {
   });
 });
 
+test('mobile: full-page editors fit the viewport width', async () => {
+  await withPage(MOBILE, async (page) => {
+    const widths = await page.evaluate(() => {
+      const out = [];
+      document.querySelectorAll('.editor-page').forEach(ed => {
+        ed.style.display = 'block';
+        out.push(ed.querySelector('.editor-panel').getBoundingClientRect().width);
+      });
+      return out;
+    });
+    assert.ok(widths.length > 0, 'no editor page found');
+    for (const w of widths) assert.ok(w <= MOBILE.width, `editor width ${w} > viewport`);
+  });
+});
+
+test('editors are pages, not click-to-close layers', async () => {
+  await withPage(DESKTOP, async (page) => {
+    const result = await page.evaluate(() => {
+      const editor = document.getElementById('char-dialog');
+      // A page participates in the document flow instead of covering it.
+      const position = getComputedStyle(editor).position;
+      // Clicking beside the form must not discard what was typed.
+      editor.style.display = 'block';
+      editor.click();
+      return { position, stillOpen: editor.style.display !== 'none' };
+    });
+    assert.notStrictEqual(result.position, 'fixed', 'editor still renders as an overlay');
+    assert.ok(result.stillOpen, 'clicking the editor background closed it');
+  });
+});
+
 test('desktop: nav stays in the left column', async () => {
   await withPage(DESKTOP, async (page) => {
     const { nav, content } = await page.evaluate(() => ({

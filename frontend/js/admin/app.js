@@ -8,6 +8,7 @@ import { initPrompts }    from '/js/admin/prompts.js?v=2';
 import { initSummaries }  from '/js/admin/summaries.js?v=1';
 import { initTelegram }   from '/js/admin/telegram.js?v=1';
 import { initObservability } from '/js/admin/observability.js?v=1';
+import { closeActiveEditorPage } from '/js/admin/editor-page.js?v=1';
 import { applyGuiCustomization } from '/js/gui-customization.js?v=2';
 import { initStatusBar, setStatusItem, initHeaderLogo } from '/js/layout.js?v=2';
 
@@ -31,6 +32,9 @@ async function main() {
 
   function activateSection(name) {
     if (!SECTIONS.includes(name)) name = 'connectors';
+    // Leaving for another section abandons whatever editor page is open,
+    // otherwise it would stay displayed on top of the new section.
+    closeActiveEditorPage();
     SECTIONS.forEach(s => {
       sectionEls[s].style.display = (s === name) ? '' : 'none';
       navBtns[s].classList.toggle('active', s === name);
