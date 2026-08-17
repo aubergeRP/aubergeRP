@@ -44,6 +44,7 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         m009_proactive_engine,  # noqa: PLC0415
         m010_observability,  # noqa: PLC0415
         m011_conversation_summaries,  # noqa: PLC0415
+        m012_media_generation_details,  # noqa: PLC0415
     )
     return {
         1: ("Initial schema and JSON import", m001_initial.migrate),
@@ -59,6 +60,10 @@ def _builtin_migrations() -> dict[int, tuple[str, MigrateFunc]]:
         11: (
             "Add conversation_summaries table",
             m011_conversation_summaries.migrate,
+        ),
+        12: (
+            "Add image generation details to media_library",
+            m012_media_generation_details.migrate,
         ),
     }
 

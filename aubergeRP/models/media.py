@@ -13,6 +13,12 @@ class MediaItem(BaseModel):
     media_type: str
     media_url: str
     prompt: str = ""
+    raw_prompt: str = ""
+    llm_input_prompt: str = ""
+    llm_output_prompt: str = ""
+    prompt_prefix: str = ""
+    negative_prompt: str = ""
+    connector_name: str = ""
     generated_via_connector: bool = True
     created_at: datetime
 

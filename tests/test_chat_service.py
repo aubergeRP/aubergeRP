@@ -973,7 +973,7 @@ async def test_stream_image_persists_prompt_in_media_library(tmp_path):
 
     medias, _total = media_svc.list_media()
     assert len(medias) == 1
-    assert medias[0].prompt == "a cinematic tavern scene"
+    assert medias[0].raw_prompt == "a cinematic tavern scene"
     assert medias[0].media_url == done["images"][0]
 
 
@@ -1025,7 +1025,7 @@ async def test_generate_image_prompt_returns_llm_output(tmp_path):
         [{"role": "user", "content": "show me"}],
         "elf ranger forest",
     )
-    assert result == "enhanced image prompt"
+    assert result.prompt == "enhanced image prompt"
 
 
 async def test_generate_image_prompt_fallback_on_error(tmp_path):
@@ -1037,7 +1037,7 @@ async def test_generate_image_prompt_fallback_on_error(tmp_path):
         [],
         "original keywords",
     )
-    assert result == "original keywords"
+    assert result.prompt == "original keywords"
 
 
 async def test_stream_image_uses_llm_enhanced_prompt(tmp_path):
@@ -1055,7 +1055,7 @@ async def test_stream_image_uses_llm_enhanced_prompt(tmp_path):
     assert img_conn.last_prompt == "detailed enhanced prompt"
 
 
-async def test_stream_image_media_prompt_is_original_not_enhanced(tmp_path):
+async def test_stream_image_media_records_every_prompt_step(tmp_path):
     char_svc = CharacterService(data_dir=tmp_path)
     conv_svc = ConversationService(data_dir=tmp_path, character_service=char_svc)
     media_svc = MediaService(data_dir=tmp_path)
@@ -1078,7 +1078,12 @@ async def test_stream_image_media_prompt_is_original_not_enhanced(tmp_path):
     await collect(svc.stream_chat(conv.id, "Hi"))
     medias, _total = media_svc.list_media()
     assert len(medias) == 1
-    assert medias[0].prompt == "original keywords"
+    # `prompt` is what the connector really received; the marker keywords and
+    # the LLM answer are kept alongside it so the admin can audit the chain.
+    assert medias[0].prompt == "llm enhanced prompt"
+    assert medias[0].raw_prompt == "original keywords"
+    assert medias[0].llm_output_prompt == "llm enhanced prompt"
+    assert "original keywords" in medias[0].llm_input_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -1206,7 +1211,7 @@ async def test_generate_image_prompt_empty_llm_result_falls_back_to_raw(tmp_path
     char_svc, conv_svc, svc = make_chat_service(tmp_path, conn)
     char = char_svc.create_character(CharacterData(name="X", description="Y"))
     result = await svc._generate_image_prompt(conn, char, [], "original prompt")
-    assert result == "original prompt"
+    assert result.prompt == "original prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -1690,3 +1695,140 @@ async def test_no_retry_when_connector_missing(tmp_path, retry_delays):
 
     assert events[0]["type"] == "error"
     assert retry_delays == []
+
+
+# ---------------------------------------------------------------------------
+# _handle_image — character prefix, negative prompt and audit trail
+# ---------------------------------------------------------------------------
+
+class _FullRecordingImage:
+    """Image connector recording both the positive and the negative prompt."""
+
+    connector_type = "image"
+
+    def __init__(self) -> None:
+        self.last_prompt = ""
+        self.last_negative = ""
+
+    async def generate_image(self, prompt, negative_prompt="", **kw) -> bytes:
+        self.last_prompt = prompt
+        self.last_negative = negative_prompt
+        return b"PNG"
+
+    async def generate_image_with_progress(self, prompt, negative_prompt="", **kw):
+        self.last_prompt = prompt
+        self.last_negative = negative_prompt
+        yield {"type": "complete", "bytes": b"PNG"}
+
+    async def test_connection(self) -> dict:
+        return {}
+
+
+def _character_with_image_settings(char_svc, prefix: str, negative: str):
+    return char_svc.create_character(
+        CharacterData(
+            name="Elara",
+            description="An elven ranger.",
+            extensions={
+                "aubergerp": {
+                    "image_prompt_prefix": prefix,
+                    "negative_prompt": negative,
+                }
+            },
+        )
+    )
+
+
+async def test_handle_image_applies_character_prefix_and_negative(tmp_path):
+    img_conn = _FullRecordingImage()
+    text_conn = _FakeText(["a moonlit clearing"])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn, img_conn)
+    char = _character_with_image_settings(char_svc, "oil painting,", "blurry, watermark")
+
+    events = await collect(
+        svc._handle_image(char, "gen-1", "forest", text_conn, [{"role": "user", "content": "hi"}])
+    )
+
+    assert img_conn.last_prompt == "oil painting, a moonlit clearing"
+    assert img_conn.last_negative == "blurry, watermark"
+    complete = next(e for e in events if e["type"] == "image_complete")
+    details = complete["details"]
+    assert details["raw_prompt"] == "forest"
+    assert details["llm_output_prompt"] == "a moonlit clearing"
+    assert details["prompt_prefix"] == "oil painting,"
+    assert details["negative_prompt"] == "blurry, watermark"
+    assert details["prompt"] == "oil painting, a moonlit clearing"
+    assert "Elara" in details["llm_input_prompt"]
+    assert details["connector_name"]
+
+
+async def test_handle_image_without_character_settings_leaves_prompt_untouched(tmp_path):
+    img_conn = _FullRecordingImage()
+    text_conn = _FakeText(["a moonlit clearing"])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn, img_conn)
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+
+    events = await collect(svc._handle_image(char, "gen-1", "forest", text_conn, []))
+
+    assert img_conn.last_prompt == "a moonlit clearing"
+    assert img_conn.last_negative == ""
+    details = next(e for e in events if e["type"] == "image_complete")["details"]
+    assert details["prompt_prefix"] == ""
+    assert details["negative_prompt"] == ""
+
+
+async def test_handle_image_strips_reasoning_and_quotes_from_llm_output(tmp_path):
+    img_conn = _FullRecordingImage()
+    text_conn = _FakeText(['<think>Let me picture it.</think> "a moonlit clearing"'])
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, text_conn, img_conn)
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+
+    await collect(svc._handle_image(char, "gen-1", "forest", text_conn, []))
+
+    assert img_conn.last_prompt == "a moonlit clearing"
+
+
+async def test_handle_image_records_error_when_prompt_llm_fails(tmp_path):
+    """A broken text_utility connector must not degrade images silently."""
+    get_registry().reset()
+    img_conn = _FullRecordingImage()
+    char_svc, conv_svc, svc = make_chat_service(
+        tmp_path, _FailText(), img_conn, role_conns={"text_utility": _FailText()}
+    )
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+
+    events = await collect(svc._handle_image(char, "gen-1", "forest", _FailText(), []))
+
+    # The image is still produced, from the raw keywords.
+    assert any(e["type"] == "image_complete" for e in events)
+    assert img_conn.last_prompt == "forest"
+    assert get_registry().list_errors(component="image")
+
+
+async def test_image_prompt_call_is_recorded_in_statistics(tmp_path):
+    """The prompt-building round-trip is billed, so it must be counted."""
+    char_svc, conv_svc = make_services(tmp_path)
+    stats = StatisticsService(data_dir=tmp_path)
+    text_conn = _FakeText(["a moonlit clearing"])
+    svc = ChatService(
+        conversation_service=conv_svc,
+        character_service=char_svc,
+        connector_manager=_manager(text_conn, _FullRecordingImage()),
+        images_dir=tmp_path / "images",
+        statistics_service=stats,
+    )
+    char = char_svc.create_character(CharacterData(name="X", description="Y"))
+    conv = conv_svc.create_conversation(char.id)
+
+    await collect(
+        svc._handle_image(char, "gen-1", "forest", text_conn, [], conversation_id=conv.id)
+    )
+
+    from sqlmodel import Session, select
+
+    from aubergeRP.database import get_engine
+    from aubergeRP.db_models import LLMCallStatRow
+
+    with Session(get_engine(tmp_path)) as session:
+        rows = list(session.exec(select(LLMCallStatRow)).all())
+    assert any(r.generation_type == "image_prompt" for r in rows)

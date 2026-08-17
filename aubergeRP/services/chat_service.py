@@ -16,7 +16,7 @@ from ..models.character import CharacterCard
 from ..models.conversation import Conversation, Message
 from ..services.character_service import CharacterService
 from ..services.conversation_service import ConversationService, resolve_macros
-from ..services.media_service import MediaService
+from ..services.media_service import GeneratedMedia, MediaService
 from ..services.observability_service import record_error
 from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 _PREFIX = "[IMG:"
 _MAX_IMAGE_MARKERS = 3
 
-_IMAGE_PROMPT_TEMPLATE = Path(__file__).parent.parent / "prompts" / "image_prompt.txt"
 _IMAGE_PROMPT_MAX_CONTEXT = 6
 
 # Shown to end users when image generation fails. The real cause often embeds
@@ -323,6 +322,48 @@ def _estimate_text_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+@dataclass(slots=True)
+class ImagePromptResult:
+    """Outcome of the LLM round-trip that turns scene context into an image prompt."""
+
+    #: Prompt to actually use — the LLM output, or the raw keywords on failure.
+    prompt: str
+    #: Filled-in template sent to the connector (kept for admin auditing).
+    llm_input: str
+    #: Cleaned LLM answer; empty when the call failed or returned nothing.
+    llm_output: str
+
+
+# Reasoning models leak their scratchpad into the answer; an image prompt must
+# not contain it.
+_REASONING_BLOCK_RE = re.compile(
+    r"<\s*(think|thinking|reasoning)\s*>.*?<\s*/\s*\1\s*>",
+    re.DOTALL | re.IGNORECASE,
+)
+# An unterminated opening tag means the model ran out of tokens mid-thought.
+_REASONING_OPEN_RE = re.compile(
+    r"<\s*(?:think|thinking|reasoning)\s*>.*", re.DOTALL | re.IGNORECASE
+)
+
+
+def _clean_image_prompt(text: str) -> str:
+    """Strip reasoning blocks, wrapping quotes and newlines from an image prompt.
+
+    Image backends take a single line of comma-separated clauses, so anything
+    the model added around it would end up as literal prompt tokens.
+    """
+    if not text:
+        return ""
+    cleaned = _REASONING_BLOCK_RE.sub(" ", text)
+    cleaned = _REASONING_OPEN_RE.sub(" ", cleaned)
+    cleaned = " ".join(cleaned.split())
+    # Models like to wrap the answer in quotes despite being told not to.
+    for opening, closing in (('"', '"'), ("'", "'"), ("«", "»"), ("“", "”")):
+        if len(cleaned) >= 2 and cleaned.startswith(opening) and cleaned.endswith(closing):
+            cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
 def _connector_model(text_connector: Any) -> str:
     """Return the model name configured on *text_connector*, if any."""
     return str(getattr(getattr(text_connector, "config", None), "model", "") or "")
@@ -569,6 +610,14 @@ class ChatService:
 
         return connector_id, connector_name, connector_backend
 
+    def _image_connector_name(self, img_connector: Any) -> str:
+        """Return the admin-visible name of the active image connector."""
+        _, instance = self._resolve_active_connector("image")
+        name = getattr(instance, "name", "")
+        if isinstance(name, str) and name:
+            return name
+        return type(img_connector).__name__
+
     def _resolve_active_connector_nsfw(self, connector_type: Literal["text", "image"]) -> bool:
         """Read nsfw flag from the active connector instance config (defaults to False)."""
         _, instance = self._resolve_active_connector(connector_type)
@@ -788,8 +837,7 @@ class ChatService:
 
         full_text = ""
         image_urls: list[str] = []
-        image_prompts_by_generation: dict[str, str] = {}
-        generated_media: list[tuple[str, str]] = []
+        generated_media: list[GeneratedMedia] = []
         assistant_persisted = False
         request_tokens = count_prompt_tokens(messages)
         call_started = perf_counter()
@@ -807,18 +855,9 @@ class ChatService:
                     if event["type"] == "token":
                         full_text += event["content"]
                         yield {"type": "token", "content": event["content"]}
-                    elif event["type"] == "image_start":
-                        gen_id = str(event.get("generation_id", ""))
-                        prompt = str(event.get("prompt", ""))
-                        if gen_id:
-                            image_prompts_by_generation[gen_id] = prompt
-                        yield event
                     elif event["type"] == "image_complete":
                         image_urls.append(event["image_url"])
-                        gen_id = str(event.get("generation_id", ""))
-                        generated_media.append(
-                            (event["image_url"], image_prompts_by_generation.get(gen_id, ""))
-                        )
+                        generated_media.append(GeneratedMedia.from_event(event))
                         yield event
                     else:
                         yield event
@@ -839,7 +878,6 @@ class ChatService:
                                 "generation_id": gen_id,
                                 "prompt": prompt,
                             }
-                            image_prompts_by_generation[gen_id] = prompt
                             async for img_event in self._handle_image(
                                 char, gen_id, prompt, text_connector, messages,
                                 conversation_id=conversation_id,
@@ -847,10 +885,7 @@ class ChatService:
                                 if img_event["type"] == "image_complete":
                                     image_urls.append(img_event["image_url"])
                                     generated_media.append(
-                                        (
-                                            img_event["image_url"],
-                                            image_prompts_by_generation.get(gen_id, ""),
-                                        )
+                                        GeneratedMedia.from_event(img_event)
                                     )
                                 yield img_event
 
@@ -1066,13 +1101,27 @@ class ChatService:
         char: CharacterCard,
         messages: list[dict[str, Any]],
         raw_prompt: str,
-    ) -> str:
+        conversation_id: str = "",
+    ) -> ImagePromptResult:
         """Use the LLM to build a detailed image generation prompt from scene context.
 
-        Falls back to *raw_prompt* on any error so image generation is never blocked.
+        Falls back to *raw_prompt* on any error so image generation is never
+        blocked, but the failure is logged and recorded so a misconfigured
+        ``text_utility`` connector does not silently degrade every image down to
+        a couple of keywords.
+
+        Returns the resolved prompt along with the exact LLM input and output,
+        so the caller can archive the whole chain in the media library.
         """
+        user_content = ""
+        call_started = perf_counter()
         try:
-            template = _IMAGE_PROMPT_TEMPLATE.read_text(encoding="utf-8")
+            template = get_prompt("image_prompt")
+            if not template:
+                raise RuntimeError(
+                    "the 'image_prompt' prompt is empty or missing "
+                    "(restore it in Admin → Prompts)"
+                )
             convo_msgs = [m for m in messages if m.get("role") != "system"]
             recent = convo_msgs[-_IMAGE_PROMPT_MAX_CONTEXT:]
             recent_exchanges = "\n".join(
@@ -1097,10 +1146,88 @@ class ChatService:
                 temperature=0.7,
             ):
                 tokens.append(chunk)
-            result = "".join(tokens).strip()
-            return result if result else raw_prompt
+            raw_output = "".join(tokens)
+            result = _clean_image_prompt(raw_output)
+            self._record_image_prompt_call(
+                text_connector,
+                conversation_id=conversation_id,
+                request_text=user_content,
+                response_text=raw_output,
+                started=call_started,
+                success=True,
+            )
+            if not result:
+                logger.warning(
+                    "[Image Gen] Prompt LLM returned nothing usable; "
+                    "falling back to the raw keywords %r",
+                    raw_prompt[:120],
+                )
+                record_error(
+                    "image",
+                    "image prompt generation returned an empty result",
+                    conversation_id=conversation_id,
+                )
+                return ImagePromptResult(raw_prompt, user_content, "")
+            return ImagePromptResult(result, user_content, result)
+        except Exception as exc:
+            logger.exception(
+                "[Image Gen] Failed to build the image prompt; "
+                "falling back to the raw keywords"
+            )
+            self._record_image_prompt_call(
+                text_connector,
+                conversation_id=conversation_id,
+                request_text=user_content,
+                response_text="",
+                started=call_started,
+                success=False,
+                error_detail=str(exc),
+            )
+            record_error(
+                "image",
+                f"image prompt generation failed: {exc}",
+                conversation_id=conversation_id,
+            )
+            return ImagePromptResult(raw_prompt, user_content, "")
+
+    def _record_image_prompt_call(
+        self,
+        text_connector: Any,
+        *,
+        conversation_id: str,
+        request_text: str,
+        response_text: str,
+        started: float,
+        success: bool,
+        error_detail: str = "",
+    ) -> None:
+        """Log the prompt-building round-trip under its own generation type.
+
+        This call is billed like any other, so it belongs in the statistics
+        instead of being invisible.  Never let bookkeeping break generation.
+        """
+        if self._statistics_service is None:
+            return
+        try:
+            connector_id, connector_name, connector_backend = (
+                self._resolve_text_connector_metadata(text_connector)
+            )
+            self._statistics_service.record_text_call(
+                conversation_id=conversation_id,
+                connector_id=connector_id,
+                connector_name=connector_name,
+                connector_backend=connector_backend,
+                request_tokens=_estimate_text_tokens(request_text),
+                response_tokens=_estimate_text_tokens(response_text),
+                response_time_ms=int((perf_counter() - started) * 1000),
+                success=success,
+                error_detail=error_detail,
+                generation_type="image_prompt",
+                model=_connector_model(text_connector),
+                tokens_estimated=True,
+            )
         except Exception:
-            return raw_prompt
+            logger.debug("Failed to record image prompt statistics", exc_info=True)
 
     async def _handle_image(
         self,
@@ -1125,16 +1252,23 @@ class ChatService:
                 "detail": detail,
             }
             return
+        raw_prompt = prompt
         full_prompt = prompt
+        llm_input = ""
+        llm_output = ""
         try:
             logger.debug("[Image Gen] Starting image generation for gen_id=%s", gen_id)
             if text_connector is not None and messages is not None:
                 # Building the image prompt is a utility task: it may run on a
                 # different (cheaper) model than the roleplay reply.
-                prompt = await self._generate_image_prompt(
+                result = await self._generate_image_prompt(
                     self._role_connector("text_utility", text_connector),
                     char, messages, prompt,
+                    conversation_id=conversation_id,
                 )
+                prompt = result.prompt
+                llm_input = result.llm_input
+                llm_output = result.llm_output
             if not prompt:
                 # Fallback when no text connector or prompt generation failed
                 char_desc = (char.data.description or "")[:300]
@@ -1144,7 +1278,11 @@ class ChatService:
             negative = auberge.get("negative_prompt", "")
             full_prompt = f"{prefix} {prompt}".strip() if prefix else prompt
             logger.debug(
-                "[Image Gen] Full prompt: %s... (len=%d)", full_prompt[:200], len(full_prompt)
+                "[Image Gen] prefix=%r negative=%r full prompt: %s... (len=%d)",
+                prefix,
+                negative,
+                full_prompt[:200],
+                len(full_prompt),
             )
             img_bytes: bytes | None = None
             async for event in img_connector.generate_image_with_progress(
@@ -1180,7 +1318,23 @@ class ChatService:
                 gen_id,
                 len(img_bytes),
             )
-            yield {"type": "image_complete", "generation_id": gen_id, "image_url": url, "prompt": full_prompt}
+            yield {
+                "type": "image_complete",
+                "generation_id": gen_id,
+                "image_url": url,
+                "prompt": full_prompt,
+                # Every step of the pipeline, archived so the admin media page
+                # can show what was really sent and what the character added.
+                "details": {
+                    "prompt": full_prompt,
+                    "raw_prompt": raw_prompt,
+                    "llm_input_prompt": llm_input,
+                    "llm_output_prompt": llm_output,
+                    "prompt_prefix": prefix,
+                    "negative_prompt": negative,
+                    "connector_name": self._image_connector_name(img_connector),
+                },
+            }
         except Exception as exc:
             logger.exception(
                 "[Image Gen] Error generating image (gen_id=%s, prompt=%r)",
@@ -1205,7 +1359,7 @@ class ChatService:
         messages: list[dict[str, Any]] | None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Run a standalone (message-less) image generation and log the result."""
-        generated_media: list[tuple[str, str]] = []
+        generated_media: list[GeneratedMedia] = []
         async for event in self._handle_image(
             char=char,
             gen_id=gen_id,
@@ -1215,7 +1369,7 @@ class ChatService:
             conversation_id=conversation_id,
         ):
             if event["type"] == "image_complete":
-                generated_media.append((event["image_url"], event.get("prompt", "")))
+                generated_media.append(GeneratedMedia.from_event(event))
             yield event
 
         if self._media_service is not None and generated_media:

@@ -14,6 +14,7 @@ def list_media(
     page: int = Query(default=1, ge=1, description="Page number (1-based)"),
     per_page: int = Query(default=50, ge=1, le=200, description="Items per page"),
     media_type: str | None = Query(default=None, description="Filter by media type (image, video, audio)"),
+    admin_token: str = Depends(get_admin_token),
 ) -> MediaPage:
     from ..config import get_config
 
