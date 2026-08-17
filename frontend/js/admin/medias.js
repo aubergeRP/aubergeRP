@@ -120,8 +120,6 @@ function renderTable(medias) {
           <th class="col-prompt">Prompt sent to connector</th>
           <th class="col-date">Created</th>
           <th class="col-conv">Conversation</th>
-          <th class="col-msg">Message</th>
-          <th class="col-url">URL</th>
           <th class="col-actions"></th>
         </tr>
       </thead>
@@ -135,8 +133,6 @@ function renderRow(media) {
   const badge     = `<span class="media-type-badge media-type-${escHtml(mediaType)}">${escHtml(mediaType)}</span>`;
   const date      = escHtml(formatDateTime(media.created_at));
   const convId    = escHtml(shortId(media.conversation_id));
-  const msgId     = escHtml(shortId(media.message_id));
-  const urlHtml   = `<a href="${escAttr(media.media_url)}" target="_blank" rel="noopener" title="${escAttr(media.media_url)}">${escHtml(truncateUrl(media.media_url))}</a>`;
 
   const promptHtml = media.prompt
     ? `<span title="${escAttr(media.prompt)}">${escHtml(truncate(media.prompt, 90))}</span>`
@@ -149,8 +145,6 @@ function renderRow(media) {
       <td class="col-prompt">${promptHtml}</td>
       <td class="col-date">${date}</td>
       <td class="col-conv" title="${escAttr(media.conversation_id)}">${convId}</td>
-      <td class="col-msg"  title="${escAttr(media.message_id)}">${msgId}</td>
-      <td class="col-url">${urlHtml}</td>
       <td class="col-actions">
         <button class="btn btn-secondary btn-sm"
           data-action="toggle-media-detail"
@@ -164,7 +158,7 @@ function renderRow(media) {
       </td>
     </tr>
     <tr class="media-detail-row" data-detail-for="${escHtml(media.id)}" hidden>
-      <td colspan="8">${renderDetail(media)}</td>
+      <td colspan="6">${renderDetail(media)}</td>
     </tr>`;
 }
 
@@ -376,15 +370,6 @@ function formatDateTime(value) {
   return d.toLocaleString();
 }
 
-/** Show only the last two path segments of a URL for brevity. */
-function truncateUrl(url) {
-  try {
-    const parts = String(url).split('/').filter(Boolean);
-    return parts.slice(-2).join('/') || url;
-  } catch (_) {
-    return url;
-  }
-}
 
 /** Clip a long prompt so the table stays readable; the full text is in the title. */
 function truncate(text, max) {

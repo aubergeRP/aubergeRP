@@ -1033,8 +1033,6 @@
 .col-type     { width: 80px; }
 .col-date     { white-space: nowrap; }
 .col-conv,
-.col-msg      { font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 0.78rem; color: var(--color-text-muted); }
-.col-url      { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-prompt   { max-width: 320px; }
 .col-actions  { width: 150px; text-align: right; white-space: nowrap; }
 
@@ -1519,5 +1517,5 @@
 
 @media (max-width: 640px) {
   /* Drop the low-value identifier columns on narrow screens */
-  .col-conv, .col-msg, .col-url { display: none; }
+  .col-conv { display: none; }
 }
