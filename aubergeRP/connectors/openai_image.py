@@ -92,12 +92,19 @@ class OpenAIImageConnector(ImageConnector):
             pass
         return f"{context} HTTP {response.status_code}"
 
+    def _image_data_url(self, reference_image: bytes | None) -> str | None:
+        """Encode the reference image as a data URL, when img2img is enabled."""
+        if not self.config.image_support or not reference_image:
+            return None
+        return "data:image/png;base64," + base64.b64encode(reference_image).decode()
+
     async def _generate_via_openai_images_api(
         self,
         full_prompt: str,
         model: str,
         size: str,
         client: httpx.AsyncClient,
+        reference_image: bytes | None = None,
     ) -> bytes:
         payload: dict[str, Any] = dict(self.config.custom_json or {})
         payload.update({
@@ -106,6 +113,9 @@ class OpenAIImageConnector(ImageConnector):
             "size": size,
             "n": 1,
         })
+        data_url = self._image_data_url(reference_image)
+        if data_url:
+            payload["imageDataUrl"] = data_url
         logger.debug("[OpenAI Images API] Sending: %s", json.dumps(payload, default=str))
         response = await client.post(
             f"{self.config.base_url}/images/generations",
@@ -125,6 +135,7 @@ class OpenAIImageConnector(ImageConnector):
         model: str,
         size: str,
         client: httpx.AsyncClient,
+        reference_image: bytes | None = None,
     ) -> bytes:
         payload: dict[str, Any] = dict(self.config.custom_json or {})
         payload.update({
@@ -134,6 +145,9 @@ class OpenAIImageConnector(ImageConnector):
             "stream": False,
             "image_config": {"size": size},
         })
+        data_url = self._image_data_url(reference_image)
+        if data_url:
+            payload["imageDataUrl"] = data_url
         logger.debug("[OpenRouter Chat API] Model: %s, Size: %s", model, size)
         logger.debug("[OpenRouter Chat API] Payload: %s", json.dumps(payload, default=str))
         response = await client.post(
@@ -169,6 +183,7 @@ class OpenAIImageConnector(ImageConnector):
         negative_prompt: str = "",
         model: str | None = None,
         size: str | None = None,
+        reference_image: bytes | None = None,
     ) -> bytes:
         full_prompt = f"{prompt}. Avoid: {negative_prompt}" if negative_prompt else prompt
         resolved_model = model or self.config.model
@@ -182,12 +197,14 @@ class OpenAIImageConnector(ImageConnector):
                         resolved_model,
                         resolved_size,
                         client,
+                        reference_image,
                     )
                 return await self._generate_via_openai_images_api(
                     full_prompt,
                     resolved_model,
                     resolved_size,
                     client,
+                    reference_image,
                 )
 
         return await retry_async(

@@ -519,6 +519,7 @@ function schemaLabel(key) {
     temperature: 'Temperature', timeout: 'Timeout (s)', max_retries: 'Max Retries',
     supports_tool_calling: 'Tool Calling', workflow: 'Workflow', nsfw: 'NSFW Content',
     extra_body: 'Extra Body', custom_json: 'Custom JSON',
+    image_support: 'Support IMG2IMG ?',
   };
   return map[key] || key.replace(/_/g, ' ');
 }
@@ -538,6 +539,7 @@ function schemaTooltip(key) {
     workflow: 'ComfyUI workflow template used for image generation.',
     nsfw: 'Allow NSFW behavior for this connector. Disabled by default.',
     extra_body: 'Extra JSON fields merged into the API request body (e.g. provider-specific options).',
+    image_support: 'Send the character portrait along with the prompt as an "imageDataUrl" base64 data URL, so the backend can do img2img. Disabled by default.',
     custom_json: 'Raw JSON merged into the request body sent to the backend. Lowest priority: every other parameter wins on conflict.',
   };
   return map[key] || '';

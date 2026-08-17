@@ -100,6 +100,7 @@ class ComfyUIConnector(ImageConnector):
         negative_prompt: str = "",
         model: str | None = None,
         size: str | None = None,
+        reference_image: bytes | None = None,
     ) -> bytes:
         """Generate an image and return raw bytes (no progress reporting)."""
         async for event in self.generate_image_with_progress(prompt, negative_prompt, model, size):
@@ -116,8 +117,13 @@ class ComfyUIConnector(ImageConnector):
         negative_prompt: str = "",
         model: str | None = None,
         size: str | None = None,
+        reference_image: bytes | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Yield progress events then a final complete event with raw image bytes."""
+        """Yield progress events then a final complete event with raw image bytes.
+
+        ``reference_image`` is ignored: img2img is expressed by the workflow
+        template itself, not by the request body.
+        """
         workflow = self._load_workflow()
         workflow = self._inject_prompt(workflow, prompt, negative_prompt or "")
         client_id = str(uuid.uuid4())

@@ -87,8 +87,13 @@ class ImageConnector(BaseConnector):
         negative_prompt: str = "",
         model: str | None = None,
         size: str | None = None,
+        reference_image: bytes | None = None,
     ) -> bytes:
-        """Generate an image and return raw PNG bytes."""
+        """Generate an image and return raw PNG bytes.
+
+        ``reference_image`` is the character portrait, offered for img2img.
+        Connectors ignore it unless their config opts in.
+        """
 
     async def generate_image_with_progress(
         self,
@@ -96,6 +101,7 @@ class ImageConnector(BaseConnector):
         negative_prompt: str = "",
         model: str | None = None,
         size: str | None = None,
+        reference_image: bytes | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Yield progress and completion events during image generation.
 
@@ -106,5 +112,7 @@ class ImageConnector(BaseConnector):
         Default implementation wraps generate_image() with a single complete event.
         Subclasses can override to emit granular progress events.
         """
-        img_bytes = await self.generate_image(prompt, negative_prompt, model, size)
+        img_bytes = await self.generate_image(
+            prompt, negative_prompt, model, size, reference_image
+        )
         yield {"type": "complete", "bytes": img_bytes}
