@@ -18,17 +18,59 @@ from ..services.summarization_service import effective_limits
 
 if TYPE_CHECKING:
     from ..models.character import CharacterCard, ScheduleDefinition
+    from ..models.conversation import Conversation
     from ..services.schedule_instance_service import ScheduleInstanceService
     from ..services.statistics_service import StatisticsService
 
 logger = logging.getLogger(__name__)
 
 
-def _build_proactive_injection(local_time_str: str, instruction: str) -> str:
+def _format_elapsed(delta: timedelta) -> str:
+    """Render an elapsed duration in coarse, human units for the LLM."""
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 1:
+        return "less than a minute ago"
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
+    hours = minutes // 60
+    if hours < 48:
+        return f"{hours} hour{'s' if hours > 1 else ''} ago"
+    days = hours // 24
+    return f"{days} days ago"
+
+
+def _message_ages(conversation: Conversation | None, now: datetime) -> tuple[str, str]:
+    """Return (age of the last message, age of the last *user* message)."""
+    if conversation is None or not conversation.messages:
+        return "never (no message yet)", "never (no message yet)"
+    last = "never (no message yet)"
+    last_user = "never (the user has never written)"
+    for msg in conversation.messages:
+        ts = msg.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        age = _format_elapsed(now - ts)
+        last = age
+        if msg.role == "user":
+            last_user = age
+    return last, last_user
+
+
+def _build_proactive_injection(
+    local_time_str: str,
+    instruction: str,
+    last_message_age: str = "unknown",
+    last_user_message_age: str = "unknown",
+) -> str:
     from .prompt_service import get_prompt
 
     template = get_prompt("proactive_event")
-    return template.replace("{{local_time}}", local_time_str).replace("{{instruction}}", instruction)
+    return (
+        template.replace("{{local_time}}", local_time_str)
+        .replace("{{last_message_age}}", last_message_age)
+        .replace("{{last_user_message_age}}", last_user_message_age)
+        .replace("{{instruction}}", instruction)
+    )
 
 
 @dataclass(slots=True)
@@ -223,7 +265,11 @@ class ProactiveScheduler:
 
             zi = ZoneInfo(row.timezone)
             local_time_str = now.astimezone(zi).strftime("%Y-%m-%d %H:%M ") + row.timezone
-            injection = _build_proactive_injection(local_time_str, defn.instruction)
+            injection = _build_proactive_injection(
+                local_time_str,
+                defn.instruction,
+                *_message_ages(self._load_conversation(row.conversation_id), now),
+            )
 
             adapter = make_delivery_adapter(row.channel, self._data_dir)
 
@@ -299,6 +345,18 @@ class ProactiveScheduler:
                 conversation_id=row.conversation_id,
                 schedule_id=row.id,
             )
+
+    def _load_conversation(self, conversation_id: str) -> Conversation | None:
+        from ..services.character_service import CharacterService
+        from ..services.conversation_service import ConversationService
+
+        char_svc = CharacterService(data_dir=self._data_dir)
+        conv_svc = ConversationService(data_dir=self._data_dir, character_service=char_svc)
+        try:
+            return conv_svc.get_conversation(conversation_id)
+        except Exception:
+            logger.debug("ProactiveScheduler: conversation %s unreadable", conversation_id)
+            return None
 
     def _persist_assistant_message(self, conversation_id: str, message: str) -> None:
         from ..services.character_service import CharacterService

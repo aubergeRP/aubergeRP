@@ -1061,3 +1061,74 @@ class TestSchedulesRouter:
                                       json={"enabled": False})
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Elapsed-time context in the proactive injection
+# ---------------------------------------------------------------------------
+
+
+class TestProactiveMessageAges:
+    def test_format_elapsed_units(self) -> None:
+        from datetime import timedelta
+
+        from aubergeRP.services.proactive_scheduler_service import _format_elapsed
+
+        assert _format_elapsed(timedelta(seconds=10)) == "less than a minute ago"
+        assert _format_elapsed(timedelta(minutes=1)) == "1 minute ago"
+        assert _format_elapsed(timedelta(minutes=42)) == "42 minutes ago"
+        assert _format_elapsed(timedelta(hours=5)) == "5 hours ago"
+        assert _format_elapsed(timedelta(days=3)) == "3 days ago"
+
+    def _conv(self, messages: list[tuple[str, datetime]]) -> Any:
+        from aubergeRP.models.conversation import Conversation, Message
+
+        return Conversation(
+            id="c1",
+            character_id="char1",
+            character_name="Char",
+            title="t",
+            created_at=datetime(2025, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2025, 1, 1, tzinfo=UTC),
+            messages=[
+                Message(id=str(i), role=role, content="x", timestamp=ts)
+                for i, (role, ts) in enumerate(messages)
+            ],
+        )
+
+    def test_message_ages_distinguishes_user(self) -> None:
+        from aubergeRP.services.proactive_scheduler_service import _message_ages
+
+        now = datetime(2025, 1, 2, 12, 0, tzinfo=UTC)
+        conv = self._conv([
+            ("user", datetime(2025, 1, 2, 9, 0, tzinfo=UTC)),
+            ("assistant", datetime(2025, 1, 2, 11, 30, tzinfo=UTC)),
+        ])
+        last, last_user = _message_ages(conv, now)
+        assert last == "30 minutes ago"
+        assert last_user == "3 hours ago"
+
+    def test_message_ages_without_user_message(self) -> None:
+        from aubergeRP.services.proactive_scheduler_service import _message_ages
+
+        now = datetime(2025, 1, 2, 12, 0, tzinfo=UTC)
+        conv = self._conv([("assistant", datetime(2025, 1, 2, 11, 0, tzinfo=UTC))])
+        last, last_user = _message_ages(conv, now)
+        assert last == "1 hour ago"
+        assert "never" in last_user
+
+    def test_message_ages_empty_conversation(self) -> None:
+        from aubergeRP.services.proactive_scheduler_service import _message_ages
+
+        now = datetime(2025, 1, 2, 12, 0, tzinfo=UTC)
+        assert _message_ages(None, now) == ("never (no message yet)", "never (no message yet)")
+
+    def test_injection_contains_ages(self) -> None:
+        from aubergeRP.services.proactive_scheduler_service import _build_proactive_injection
+
+        text = _build_proactive_injection(
+            "2025-01-02 12:00 Europe/Paris", "Say hi", "30 minutes ago", "3 hours ago"
+        )
+        assert "30 minutes ago" in text
+        assert "3 hours ago" in text
+        assert "{{" not in text

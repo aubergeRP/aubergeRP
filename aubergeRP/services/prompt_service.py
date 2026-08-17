@@ -146,7 +146,8 @@ PROMPT_META: dict[str, dict[str, str]] = {
         "description": (
             "Injected as a late system message when a scheduled proactive message is triggered. "
             "Tells the character why it is initiating the conversation. "
-            "Supports {{local_time}} and {{instruction}} placeholders."
+            "Supports {{local_time}}, {{last_message_age}}, {{last_user_message_age}} "
+            "and {{instruction}} placeholders."
         ),
     },
     "character_translation": {

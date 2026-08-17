@@ -4,6 +4,9 @@ You are initiating this conversation yourself.
 
 Current local user time: {{local_time}}
 
+Last message in this conversation: {{last_message_age}}
+Last message written by the user: {{last_user_message_age}}
+
 Reason:
 {{instruction}}
 

@@ -1,6 +1,9 @@
 Decide whether contacting the user now is natural.
 
 Use the relationship, recent conversation, and memory.
+Weigh the elapsed time above: messaging again minutes after the last exchange is
+usually intrusive, while a long silence often makes contact natural. A user who
+has not replied to the last messages may not want to be pushed.
 Do not send a message merely because the trigger fired.
 
 Return ONLY valid JSON:
