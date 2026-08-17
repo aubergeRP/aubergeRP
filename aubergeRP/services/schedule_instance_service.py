@@ -669,6 +669,19 @@ class ScheduleInstanceService:
                 session.commit()
             return len(orphans)
 
+    def delete_for_conversation(self, conversation_id: str) -> int:
+        with self._get_session() as session:
+            rows = session.exec(
+                select(ScheduleInstanceRow).where(
+                    ScheduleInstanceRow.conversation_id == conversation_id
+                )
+            ).all()
+            for row in rows:
+                session.delete(row)
+            if rows:
+                session.commit()
+            return len(rows)
+
     def delete_for_character(self, character_id: str) -> int:
         with self._get_session() as session:
             rows = session.exec(

@@ -388,6 +388,72 @@ def test_reset_creates_new_conversation(cs_svc, tmp_path):
     assert created is False
 
 
+def test_runtime_reset_returns_character_first_message(tmp_path):
+    from aubergeRP.database import init_db
+    from aubergeRP.models.character import CharacterData
+    from aubergeRP.services.character_service import CharacterService
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+    char = CharacterService(data_dir=data_dir).create_character(
+        CharacterData(name="Alice", description="Test", first_mes="Hello, I am {{char}}.")
+    )
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+    conv_id, greeting = mgr._reset_session("bot-1", "user-1", "1", char.id)
+    assert conv_id
+    assert greeting == "Hello, I am Alice."
+
+
+def test_runtime_reset_without_first_message_returns_empty_greeting(tmp_path):
+    from aubergeRP.database import init_db
+    from aubergeRP.models.character import CharacterData
+    from aubergeRP.services.character_service import CharacterService
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+    char = CharacterService(data_dir=data_dir).create_character(
+        CharacterData(name="Bob", description="Test")
+    )
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+    _conv_id, greeting = mgr._reset_session("bot-1", "user-1", "1", char.id)
+    assert greeting == ""
+
+
+def test_runtime_reset_moves_schedule_instances_to_new_conversation(tmp_path):
+    from aubergeRP.database import init_db
+    from aubergeRP.models.character import CharacterData
+    from aubergeRP.services.character_service import CharacterService
+    from aubergeRP.services.schedule_instance_service import ScheduleInstanceService
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    init_db(data_dir)
+    char = CharacterService(data_dir=data_dir).create_character(
+        CharacterData(
+            name="Alice",
+            description="Test",
+            extensions={"aubergerp": {"schedules": [{
+                "id": "morning",
+                "enabled": True,
+                "type": "daily_at",
+                "time": "08:00",
+                "instruction": "Say good morning",
+            }]}},
+        )
+    )
+
+    mgr = TelegramRuntimeManager(data_dir=data_dir)
+    conv1, _ = mgr._get_or_create_session("bot-1", "user-1", "1", char.id)
+    sched_svc = ScheduleInstanceService(data_dir)
+    assert len(sched_svc.list_for_conversation(conv1)) == 1
+
+    conv2, _ = mgr._reset_session("bot-1", "user-1", "1", char.id)
+    assert conv2 != conv1
+    assert sched_svc.list_for_conversation(conv1) == []
+    assert len(sched_svc.list_for_conversation(conv2)) == 1
+
+
 # ── Message splitting ─────────────────────────────────────────────────────────
 
 

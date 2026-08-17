@@ -678,10 +678,20 @@ class TelegramRuntimeManager:
                 return
             user_id = str(message.from_user.id) if message.from_user else "0"
             chat_id = str(message.chat.id)
-            await asyncio.get_running_loop().run_in_executor(
+            _conv_id, greeting = await asyncio.get_running_loop().run_in_executor(
                 None, self._reset_session, bot_id, user_id, chat_id, character_id
             )
             await message.answer("🔄 Conversation reset. Starting fresh!")
+            for chunk in (split_message(greeting) if greeting.strip() else []):
+                try:
+                    await message.answer(chunk)
+                except Exception as exc:
+                    get_registry().mark_delivery_failure(bot_id)
+                    record_error("telegram_delivery", f"greeting send failed: {exc}",
+                                 bot_id=bot_id, conversation_id=_conv_id)
+                    break
+                else:
+                    get_registry().mark_message_sent(bot_id)
 
         @dp.message(Command("status"))
         async def on_status(message: Message) -> None:
@@ -971,16 +981,51 @@ class TelegramRuntimeManager:
         user_id: str,
         chat_id: str,
         character_id: str,
-    ) -> str:
+    ) -> tuple[str, str]:
+        """Start a fresh conversation.  Returns (conversation_id, greeting).
+
+        The greeting is the character's ``first_mes`` (already stored as the
+        first assistant message by ``create_conversation``), or "" when the
+        card defines none.
+        """
         from .channel_session_service import ChannelSessionService
+        from .character_service import CharacterService
+        from .conversation_service import ConversationService
+        from .schedule_instance_service import ScheduleInstanceService
         svc = ChannelSessionService(self._data_dir)
-        return svc.reset(
+        old_conv_id = svc.get_conversation_id("telegram", bot_id, user_id)
+        conv_id = svc.reset(
             channel="telegram",
             channel_instance_id=bot_id,
             external_user_id=user_id,
             external_chat_id=chat_id,
             character_id=character_id,
         )
+        # Schedule instances point at a conversation: drop the stale ones and
+        # recreate them for the fresh conversation.
+        if old_conv_id and old_conv_id != conv_id:
+            with contextlib.suppress(Exception):
+                ScheduleInstanceService(self._data_dir).delete_for_conversation(old_conv_id)
+        self._ensure_schedule_instances(
+            bot_id=bot_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            character_id=character_id,
+            conversation_id=conv_id,
+        )
+        greeting = ""
+        try:
+            char_svc = CharacterService(data_dir=self._data_dir)
+            conv_svc = ConversationService(data_dir=self._data_dir, character_service=char_svc)
+            conv = conv_svc.get_conversation(conv_id)
+            for msg in conv.messages:
+                if msg.role == "assistant":
+                    greeting = msg.content
+                    break
+        except Exception:
+            logger.warning("Telegram bot %s: failed to load greeting for conv %s",
+                           bot_id, conv_id, exc_info=True)
+        return conv_id, greeting
 
     async def _generate(
         self,
