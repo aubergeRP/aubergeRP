@@ -1107,13 +1107,19 @@ class _CapturingText:
         return {}
 
 
-async def test_generate_image_prompt_includes_char_name(tmp_path):
+async def test_generate_image_prompt_omits_char_name(tmp_path):
+    """The name is deliberately left out: only visual traits guide the render.
+
+    A proper noun carries no visual information for a diffusion model and only
+    dilutes the prompt, so the character is described by its appearance instead.
+    """
     conn = _CapturingText()
     char_svc, conv_svc, svc = make_chat_service(tmp_path, conn)
     char = char_svc.create_character(CharacterData(name="Seraphina", description="A warrior."))
     await svc._generate_image_prompt(conn, char, [], "battle")
     user_content = conn.received[0][0]["content"]
-    assert "Seraphina" in user_content
+    assert "Seraphina" not in user_content
+    assert "A warrior." in user_content
 
 
 async def test_generate_image_prompt_includes_char_description(tmp_path):
@@ -1150,7 +1156,8 @@ async def test_generate_image_prompt_requires_english_output(tmp_path):
     await svc._generate_image_prompt(conn, char, [], "scene")
     user_content = conn.received[0][0]["content"]
     assert "Write in English only" in user_content
-    assert "Output ONLY the image generation prompt, in English." in user_content
+    assert "positive prompt in English" in user_content
+    assert "Output ONLY the final Pony image generation prompt." in user_content
 
 
 async def test_generate_image_prompt_includes_recent_exchanges(tmp_path):
@@ -1758,7 +1765,7 @@ async def test_handle_image_applies_character_prefix_and_negative(tmp_path):
     assert details["prompt_prefix"] == "oil painting,"
     assert details["negative_prompt"] == "blurry, watermark"
     assert details["prompt"] == "oil painting, a moonlit clearing"
-    assert "Elara" in details["llm_input_prompt"]
+    assert "forest" in details["llm_input_prompt"]
     assert details["connector_name"]
 
 

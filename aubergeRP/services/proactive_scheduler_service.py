@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from ..db_models import ScheduleInstanceRow
 from ..services.delivery_service import make_delivery_adapter
 from ..services.observability_service import get_registry, record_error
+from ..services.summarization_service import effective_limits
 
 if TYPE_CHECKING:
     from ..models.character import CharacterCard, ScheduleDefinition
@@ -316,11 +317,13 @@ class ProactiveScheduler:
         decision_instruction = get_prompt("proactive_decision")
         payload_prompt = f"{injection}\n\n{decision_instruction}"
         stats = self._statistics_service()
+        ctx_window, max_tokens = effective_limits(text_connector, config.chat.context_window)
         messages = await SummaryService(self._data_dir).build_prompt_within_budget(
             conv,
             connector=summarization_connector or text_connector,
-            context_window=config.chat.context_window,
+            context_window=ctx_window,
             threshold=config.chat.summarization_threshold,
+            max_tokens=max_tokens,
             statistics_service=stats,
             char=char,
             user_name=config.user.name,
@@ -381,6 +384,7 @@ class ProactiveScheduler:
         stats = self._statistics_service()
         started = perf_counter()
         messages: list[dict[str, str]] = []
+        ctx_window, max_tokens = effective_limits(text_connector, config.chat.context_window)
         try:
             messages = await SummaryService(data_dir).build_prompt_within_budget(
                 conv,
@@ -388,8 +392,9 @@ class ProactiveScheduler:
                     connector_manager.get_text_connector("text_summarization")
                     or text_connector
                 ),
-                context_window=config.chat.context_window,
+                context_window=ctx_window,
                 threshold=config.chat.summarization_threshold,
+                max_tokens=max_tokens,
                 statistics_service=stats,
                 char=char,
                 user_name=config.user.name,

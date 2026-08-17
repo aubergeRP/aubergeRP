@@ -182,6 +182,7 @@ class SummaryService:
         connector: TextConnector | None,
         context_window: int,
         threshold: float,
+        max_tokens: int,
         statistics_service: StatisticsService | None = None,
         **build_kwargs: Any,
     ) -> list[dict[str, str]]:
@@ -201,7 +202,7 @@ class SummaryService:
         )
         if connector is None:
             return messages
-        if count_prompt_tokens(messages) <= prompt_budget(context_window, threshold):
+        if count_prompt_tokens(messages) <= prompt_budget(context_window, threshold, max_tokens):
             return messages
 
         row = await self.summarize_now(

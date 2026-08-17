@@ -15,7 +15,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..services.character_service import CharacterService
 from ..services.conversation_service import ConversationNotFoundError, ConversationService
-from ..services.summarization_service import count_prompt_tokens, prompt_budget
+from ..services.summarization_service import (
+    count_prompt_tokens,
+    effective_limits,
+    prompt_budget,
+)
 from ..services.summary_service import SummaryService
 from .admin import get_admin_token
 
@@ -29,6 +33,14 @@ def _services() -> tuple[Any, ConversationService, SummaryService]:
     char_svc = CharacterService(data_dir=config.app.data_dir)
     conv_svc = ConversationService(data_dir=config.app.data_dir, character_service=char_svc)
     return config, conv_svc, SummaryService(config.app.data_dir)
+
+
+def _chat_limits(config: Any) -> tuple[int, int]:
+    """Return the (context_window, max_tokens) the chat pipeline would apply."""
+    from ..connectors.manager import ConnectorManager
+
+    manager = ConnectorManager(data_dir=config.app.data_dir, config=config)
+    return effective_limits(manager.get_active_text_connector(), config.chat.context_window)
 
 
 def _summary_connector(config: Any) -> Any:
@@ -70,7 +82,8 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 @router.get("/")
 def list_summaries(token: str = Depends(get_admin_token)) -> list[dict[str, Any]]:
     config, conv_svc, summary_svc = _services()
-    budget = prompt_budget(config.chat.context_window, config.chat.summarization_threshold)
+    ctx_window, max_tokens = _chat_limits(config)
+    budget = prompt_budget(ctx_window, config.chat.summarization_threshold, max_tokens)
     result: list[dict[str, Any]] = []
     for conv_summary in conv_svc.list_conversations():
         try:
@@ -87,7 +100,8 @@ def list_summaries(token: str = Depends(get_admin_token)) -> list[dict[str, Any]
             "message_count": conv_summary.message_count,
             "messages_since_summary": len(history),
             "context_tokens": count_prompt_tokens(messages),
-            "context_window": config.chat.context_window,
+            "context_window": ctx_window,
+            "max_tokens": max_tokens,
             "threshold": config.chat.summarization_threshold,
             "budget_tokens": budget,
             "summary_count": len(summary_svc.list_chain(conv_summary.id)),
@@ -110,13 +124,15 @@ def get_summary_detail(
     except (ConversationNotFoundError, KeyError) as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
     chain = summary_svc.list_chain(conversation_id)
+    ctx_window, max_tokens = _chat_limits(config)
     return {
         "conversation_id": conversation_id,
         "context_tokens": count_prompt_tokens(messages),
         "budget_tokens": prompt_budget(
-            config.chat.context_window, config.chat.summarization_threshold
+            ctx_window, config.chat.summarization_threshold, max_tokens
         ),
-        "context_window": config.chat.context_window,
+        "context_window": ctx_window,
+        "max_tokens": max_tokens,
         "threshold": config.chat.summarization_threshold,
         "summary": summary_text,
         "summaries": [_row_to_dict(row) for row in chain],

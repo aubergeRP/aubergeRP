@@ -832,11 +832,16 @@ class ObservabilityService:
 
     def get_memory(self, *, limit: int = 50, conversation_id: str = "") -> dict[str, Any]:
         from ..config import get_config
-        from .summarization_service import count_prompt_tokens
+        from ..connectors.manager import ConnectorManager
+        from .summarization_service import count_prompt_tokens, effective_limits, prompt_budget
 
         config = get_config()
-        context_limit = config.chat.context_window
+        manager = ConnectorManager(data_dir=config.app.data_dir, config=config)
+        context_limit, max_tokens = effective_limits(
+            manager.get_active_text_connector(), config.chat.context_window
+        )
         threshold = config.chat.summarization_threshold
+        budget_tokens = prompt_budget(context_limit, threshold, max_tokens)
 
         with self._get_session() as session:
             conversations = list(session.exec(select(ConversationRow)).all())
@@ -879,8 +884,9 @@ class ObservabilityService:
                 "message_count": len(conv_messages),
                 "context_tokens_estimated": context_tokens,
                 "context_limit": context_limit,
+                "max_tokens": max_tokens,
                 "summarization_threshold": threshold,
-                "threshold_tokens": int(context_limit * threshold),
+                "threshold_tokens": budget_tokens,
                 "context_pressure_pct": (
                     round((context_tokens / context_limit) * 100.0, 1) if context_limit else 0.0
                 ),
@@ -894,6 +900,7 @@ class ObservabilityService:
         return {
             "conversations": rows[: max(1, limit)],
             "context_limit": context_limit,
+            "max_tokens": max_tokens,
             "summarization_threshold": threshold,
             "note": "Context sizes are estimates (~4 characters per token).",
         }

@@ -60,7 +60,10 @@ def test_list_reports_context_size_and_budget(tmp_path):
     assert row["message_count"] == 8
     assert row["messages_since_summary"] == 8
     assert row["context_tokens"] > 0
-    assert row["budget_tokens"] == int(400 * 0.75) - 256
+    # No connector is loaded, so the reply falls back to 1024 tokens -- more
+    # than the whole 400-token window, which floors the prompt budget at 1.
+    assert row["max_tokens"] == 1024
+    assert row["budget_tokens"] == 1
     assert row["summary_count"] == 0
     assert row["last_summary_at"] is None
 

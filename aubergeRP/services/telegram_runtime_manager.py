@@ -516,7 +516,6 @@ class TelegramRuntimeManager:
             tokens: list[str] = []
             async for chunk in connector.stream_chat_completion(
                 [{"role": "user", "content": user_content}],
-                max_tokens=1024,
                 temperature=0.7,
             ):
                 tokens.append(chunk)
@@ -584,7 +583,6 @@ class TelegramRuntimeManager:
                 tokens: list[str] = []
                 async for chunk in text_connector.stream_chat_completion(
                     [{"role": "user", "content": template}],
-                    max_tokens=1024,
                     temperature=0.7,
                 ):
                     tokens.append(chunk)

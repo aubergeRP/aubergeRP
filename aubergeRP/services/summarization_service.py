@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Each message carries a small fixed overhead beyond its content.
 _MSG_OVERHEAD_TOKENS = 4
-# Reserve some tokens for the new user turn and the assistant's reply.
-_REPLY_RESERVE_TOKENS = 256
+# Fallback reply size when no connector states its own ``max_tokens``.
+_DEFAULT_MAX_TOKENS = 1024
 # Keep at least this many recent messages intact even after summarization.
 _MIN_RECENT_MESSAGES = 4
 
@@ -54,9 +54,39 @@ def count_prompt_tokens(messages: list[dict[str, Any]]) -> int:
     return sum(_count_message_tokens(m) for m in messages)
 
 
-def prompt_budget(context_window: int, threshold: float) -> int:
-    """Return the token budget a prompt must stay under before summarizing."""
-    return int(context_window * threshold) - _REPLY_RESERVE_TOKENS
+def prompt_budget(
+    context_window: int,
+    threshold: float,
+    max_tokens: int = _DEFAULT_MAX_TOKENS,
+) -> int:
+    """Return the token budget a prompt must stay under before summarizing.
+
+    ``context_window`` is the *total* capacity of the model — prompt and reply
+    share it — while ``max_tokens`` is what the reply alone may consume.  The
+    room actually left for the prompt is therefore ``context_window -
+    max_tokens``; ``threshold`` is the fraction of that room we allow to fill
+    up before summarizing.
+    """
+    return max(1, int((context_window - max_tokens) * threshold))
+
+
+def effective_limits(connector: Any, fallback_context_window: int) -> tuple[int, int]:
+    """Return the ``(context_window, max_tokens)`` actually in force.
+
+    A connector states the limits of the model it talks to, so its values win;
+    ``fallback_context_window`` (usually ``config.chat.context_window``) only
+    covers connectors that leave them unset.  Every budget computation must go
+    through this helper so the admin screens report the same numbers the chat
+    pipeline applies.
+    """
+    conn_cfg = getattr(connector, "config", None)
+    ctx = getattr(conn_cfg, "context_window", None)
+    max_tokens = getattr(conn_cfg, "max_tokens", None)
+    if not isinstance(ctx, int) or ctx <= 0:
+        ctx = fallback_context_window
+    if not isinstance(max_tokens, int) or max_tokens <= 0:
+        max_tokens = _DEFAULT_MAX_TOKENS
+    return ctx, max_tokens
 
 
 def format_summary_message(summary_text: str) -> str:

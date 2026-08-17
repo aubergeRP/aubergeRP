@@ -48,9 +48,13 @@ user:
 
 # Chat / AI quality settings
 chat:
-  # Estimated context window of the active text model in tokens.
+  # Total context window of the text model in tokens: the prompt AND the
+  # generated reply share it (prompt + reply <= context_window).  This is a
+  # fallback -- when the active text connector declares its own
+  # context_window / max_tokens, those win.
   context_window: 4096
-  # Trigger conversation summarization when this fraction of the context is used.
+  # Trigger conversation summarization when this fraction of the room left for
+  # the prompt (context_window minus the connector's max_tokens) is used.
   summarization_threshold: 0.75
   # Inject a guardrail when out-of-character jailbreak attempts are detected.
   ooc_protection: true

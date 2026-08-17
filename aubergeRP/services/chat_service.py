@@ -20,7 +20,11 @@ from ..services.media_service import GeneratedMedia, MediaService
 from ..services.observability_service import record_error
 from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
-from ..services.summarization_service import count_prompt_tokens, format_summary_message
+from ..services.summarization_service import (
+    count_prompt_tokens,
+    effective_limits,
+    format_summary_message,
+)
 from ..services.summary_service import SummaryService
 from ..utils.retry import backoff_delays, is_retryable_error
 
@@ -816,13 +820,15 @@ class ChatService:
         )
         # The prompt is built from the stored summary plus the messages that
         # followed it; a new summary is produced only when the budget is hit.
-        conn_ctx = getattr(getattr(text_connector, "config", None), "context_window", None)
-        effective_ctx = conn_ctx if isinstance(conn_ctx, int) and conn_ctx > 0 else self._context_window
+        effective_ctx, effective_max_tokens = effective_limits(
+            text_connector, self._context_window
+        )
         messages = await self._summary_service.build_prompt_within_budget(
             conv,
             connector=self._role_connector("text_summarization", text_connector),
             context_window=effective_ctx,
             threshold=self._summarization_threshold,
+            max_tokens=effective_max_tokens,
             statistics_service=self._statistics_service,
             char=char,
             user_name=user_name,
@@ -1142,7 +1148,6 @@ class ChatService:
             tokens: list[str] = []
             async for chunk in text_connector.stream_chat_completion(
                 [{"role": "user", "content": user_content}],
-                max_tokens=2048,
                 temperature=0.7,
             ):
                 tokens.append(chunk)

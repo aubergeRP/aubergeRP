@@ -191,7 +191,7 @@ function renderConnectorCard(c) {
     c.config.base_url ? `URL: ${c.config.base_url}` : '',
     c.config.model    ? `Model: ${c.config.model}` : '',
     c.type === 'text' && c.config.context_window ? `ctx: ${c.config.context_window}` : '',
-    c.type === 'text' && c.config.max_tokens     ? `max: ${c.config.max_tokens} tok` : '',
+    c.type === 'text' && c.config.max_tokens     ? `reply max: ${c.config.max_tokens} tok` : '',
   ].filter(Boolean).join(' &nbsp;·&nbsp; ') : '';
   const testFeedback = testFeedbackById.get(c.id);
   const feedbackHtml = testFeedback
@@ -529,8 +529,8 @@ function schemaTooltip(key) {
     base_url: 'Base URL of the connector API endpoint.',
     api_key: 'API key used for authentication by this connector.',
     model: 'Default model identifier used by this connector.',
-    max_tokens: 'Maximum number of tokens to generate per reply.',
-    context_window: 'Total context window of the model in tokens. Controls when conversation summarization kicks in.',
+    max_tokens: 'Reply budget: the maximum number of tokens the model may GENERATE for one reply. It is taken out of the context window, not added to it — the prompt only gets what is left (Context Window \u2212 Max Tokens). Too high and the conversation history gets summarized early; too low and long replies get cut off mid-sentence.',
+    context_window: 'Total capacity of the model in tokens, shared by the prompt AND the reply (prompt + reply \u2264 context window). This is a property of the model/inference server \u2014 set it to the value the server actually allocates (context_size in LocalAI, num_ctx in Ollama), not higher, or the server will silently truncate. Together with Max Tokens it decides when conversation summarization kicks in.',
     temperature: 'Sampling temperature: lower is deterministic, higher is more creative.',
     supports_tool_calling: 'Enable OpenAI-style function/tool calling. Only enable for models that support it.',
     timeout: 'Request timeout in seconds before considering the connector unavailable.',

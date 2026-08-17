@@ -1,4 +1,7 @@
 backend: llama-cpp
+# Must match AUBERGE_LLM_CONTEXT_WINDOW in docker/profiles/*.yml, otherwise
+# LocalAI silently allocates its own default and truncates the prompt.
+context_size: 8192
 function:
     automatic_tool_parsing_fallback: true
     grammar:

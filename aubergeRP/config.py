@@ -139,9 +139,12 @@ class SchedulerConfig(BaseModel):
 class ChatConfig(BaseModel):
     """Global settings that influence AI quality behaviour."""
 
-    # Estimated size of the model's context window in tokens.
+    # Total size of the model's context window in tokens -- prompt and reply
+    # share it.  Fallback only: a text connector declaring its own
+    # context_window / max_tokens overrides this.
     context_window: int = 4096
-    # Summarize conversation history when this fraction of the context window is consumed.
+    # Summarize when this fraction of the room left for the prompt
+    # (context_window minus the reply's max_tokens) is consumed.
     summarization_threshold: float = 0.75
     # Enable out-of-character (OOC) detection and guardrail injection.
     ooc_protection: bool = True

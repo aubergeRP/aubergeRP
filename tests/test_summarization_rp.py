@@ -73,12 +73,13 @@ def _conversation(tmp_path: Path, turns: int, *, filler: str = "x" * 300):
 
 
 async def _build(tmp_path: Path, conv, char, connector, *, context_window: int,
-                 threshold: float) -> list[dict[str, str]]:
+                 threshold: float, max_tokens: int = 64) -> list[dict[str, str]]:
     return await SummaryService(tmp_path).build_prompt_within_budget(
         conv,
         connector=connector,
         context_window=context_window,
         threshold=threshold,
+        max_tokens=max_tokens,
         char=char,
         user_name="Traveler",
     )

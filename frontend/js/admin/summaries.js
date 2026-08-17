@@ -107,7 +107,8 @@ async function openDetail(conversationId) {
     <h3 class="health-subheading">Conversation ${escHtml(conversationId)}</h3>
     <p style="color:var(--color-muted,#888);font-size:0.9rem">
       ${data.context_tokens} tokens for a budget of ${data.budget_tokens}
-      (context window ${data.context_window} × threshold ${data.threshold}) —
+      (context window ${data.context_window} − reply max ${data.max_tokens},
+      × threshold ${data.threshold}) —
       ${data.summaries.length} stored summary/summaries.
     </p>
     <div style="margin:0.75rem 0">

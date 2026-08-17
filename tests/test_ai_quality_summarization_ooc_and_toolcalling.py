@@ -46,6 +46,7 @@ from aubergeRP.services.conversation_service import ConversationService
 from aubergeRP.services.prompt_service import get_prompt
 from aubergeRP.services.summarization_service import (
     count_prompt_tokens,
+    effective_limits,
     prompt_budget,
     summarize_excerpt,
 )
@@ -220,9 +221,27 @@ def test_count_prompt_tokens_multiple_messages():
 
 
 def test_prompt_budget_reserves_room_for_the_reply():
-    """The budget is the threshold share of the window minus the reply reserve."""
-    assert prompt_budget(4096, 0.75) == int(4096 * 0.75) - 256
-    assert prompt_budget(200, 0.75) < 200
+    """The reply's max_tokens is carved out of the window before the threshold."""
+    assert prompt_budget(4096, 0.75, 1024) == int((4096 - 1024) * 0.75)
+    # A bigger reply budget leaves less room for the prompt.
+    assert prompt_budget(4096, 0.75, 2048) < prompt_budget(4096, 0.75, 1024)
+    # Prompt plus reply always fit inside the window.
+    assert prompt_budget(8192, 0.75, 4096) + 4096 <= 8192
+    # Degenerate settings never produce a negative or zero budget.
+    assert prompt_budget(200, 0.75, 1024) >= 1
+
+
+def test_effective_limits_prefers_the_connector_values():
+    """Connector limits win; the config context window is only the fallback."""
+    class _Cfg:
+        context_window = 8192
+        max_tokens = 4096
+
+    class _Conn:
+        config = _Cfg()
+
+    assert effective_limits(_Conn(), 4096) == (8192, 4096)
+    assert effective_limits(None, 4096) == (4096, 1024)
 
 
 @pytest.mark.asyncio
