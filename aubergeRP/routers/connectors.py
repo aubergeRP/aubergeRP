@@ -182,6 +182,7 @@ def list_backends() -> list[dict[str, Any]]:
                     "timeout": {"type": "number", "required": False},
                     "max_retries": {"type": "number", "required": False},
                     "nsfw": {"type": "boolean", "required": False},
+                    "custom_json": {"type": "object", "required": False},
                 },
                 "by_type": {
                     "text": {
@@ -210,6 +211,7 @@ def list_backends() -> list[dict[str, Any]]:
                     "timeout": {"type": "number", "required": False},
                     "max_retries": {"type": "number", "required": False},
                     "nsfw": {"type": "boolean", "required": False},
+                    "custom_json": {"type": "object", "required": False},
                 },
                 "by_type": {
                     "image": {

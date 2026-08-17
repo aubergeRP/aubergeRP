@@ -108,6 +108,7 @@ async function loadBackends() {
           model: { type: 'string', required: true },
           timeout: { type: 'number', required: false },
           max_retries: { type: 'number', required: false },
+          custom_json: { type: 'object', required: false },
         },
         by_type: {
           text: {
@@ -517,7 +518,7 @@ function schemaLabel(key) {
     max_tokens: 'Max Tokens', context_window: 'Context Window (tokens)',
     temperature: 'Temperature', timeout: 'Timeout (s)', max_retries: 'Max Retries',
     supports_tool_calling: 'Tool Calling', workflow: 'Workflow', nsfw: 'NSFW Content',
-    extra_body: 'Extra Body',
+    extra_body: 'Extra Body', custom_json: 'Custom JSON',
   };
   return map[key] || key.replace(/_/g, ' ');
 }
@@ -537,6 +538,7 @@ function schemaTooltip(key) {
     workflow: 'ComfyUI workflow template used for image generation.',
     nsfw: 'Allow NSFW behavior for this connector. Disabled by default.',
     extra_body: 'Extra JSON fields merged into the API request body (e.g. provider-specific options).',
+    custom_json: 'Raw JSON merged into the request body sent to the backend. Lowest priority: every other parameter wins on conflict.',
   };
   return map[key] || '';
 }

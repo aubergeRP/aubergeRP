@@ -260,3 +260,36 @@ async def test_stream_reasoning_with_content_no_warning(caplog):
         "reasoning" in record.message.lower() and record.levelno == logging.WARNING
         for record in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# custom_json
+# ---------------------------------------------------------------------------
+
+
+def test_custom_json_merged_with_lowest_priority():
+    conn = make_connector(
+        custom_json={"model": "ignored", "temperature": 0.1, "provider": {"order": ["a"]}},
+        extra_body={"provider": {"order": ["b"]}},
+    )
+    payload = conn._build_payload(
+        [], None, None, None, None, None, None, None, None, None
+    )
+    # Computed values win over custom_json…
+    assert payload["model"] == "llama3"
+    assert payload["temperature"] == 0.8
+    # …and extra_body wins over custom_json too.
+    assert payload["provider"] == {"order": ["b"]}
+
+
+def test_custom_json_adds_unknown_fields():
+    conn = make_connector(custom_json={"seed": 42})
+    payload = conn._build_payload(
+        [], None, None, None, None, None, None, None, None, None
+    )
+    assert payload["seed"] == 42
+
+
+def test_custom_json_empty_string_coerced():
+    conn = make_connector(custom_json="")
+    assert conn.config.custom_json == {}
