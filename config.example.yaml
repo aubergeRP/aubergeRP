@@ -11,7 +11,10 @@ app:
   data_dir: "data"
   # Sentry DSN for error reporting (optional)
   # sentry_dsn: ""
-  # bcrypt hash of the admin password; generated on first start if omitted
+  # SHA-256 hex digest of the admin password; generated on first start if omitted.
+  # Build one with:
+  #   python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' 'my-password'
+  # or:  printf %s 'my-password' | sha256sum | cut -d' ' -f1
   # admin_password_hash: ""
 
 # Environment-variable overrides (take precedence over this file):
@@ -21,7 +24,8 @@ app:
 #   AUBERGE_LOG_LEVEL            → app.log_level
 #   AUBERGE_USER_NAME            → user.name
 #   AUBERGE_SENTRY_DSN           → app.sentry_dsn
-#   AUBERGE_ADMIN_PASSWORD_HASH  → app.admin_password_hash (stable password across restarts)
+#   AUBERGE_ADMIN_PASSWORD_HASH  → app.admin_password_hash (stable password across restarts;
+#                                  SHA-256 hex digest of the password, see above)
 #   AUBERGE_LLM_API_URL          → auto-provision text connector on startup
 #   AUBERGE_LLM_MODEL            → text model name
 #   AUBERGE_LLM_CONTEXT_WINDOW   → text model context window in tokens (default: 4096)

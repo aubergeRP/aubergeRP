@@ -55,7 +55,7 @@ gui:
 | `AUBERGE_LOG_LEVEL` | `app.log_level` |
 | `AUBERGE_USER_NAME` | `user.name` |
 | `AUBERGE_SENTRY_DSN` | `app.sentry_dsn` |
-| `AUBERGE_ADMIN_PASSWORD_HASH` | `app.admin_password_hash` |
+| `AUBERGE_ADMIN_PASSWORD_HASH` | `app.admin_password_hash` (SHA-256 hex digest of the password — see [Admin password](#admin-password)) |
 | `AUBERGE_LLM_API_URL` | Auto-provision text connector on startup (OpenAI-compatible base URL) |
 | `AUBERGE_LLM_MODEL` | Text model name (e.g. `qwen3:27b`) |
 | `AUBERGE_LLM_CONTEXT_WINDOW` | Context window of the text model in tokens (default: `4096`) |
@@ -68,3 +68,17 @@ gui:
 ## Admin password
 
 Generated on first startup and printed to the console. To reuse across restarts, copy the hash into `config.yaml:app.admin_password_hash` or set `AUBERGE_ADMIN_PASSWORD_HASH`.
+
+To choose your own password, store its **SHA-256 hex digest** (unsalted, lowercase hex):
+
+```bash
+python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' 'my-password'
+# or
+printf %s 'my-password' | sha256sum | cut -d' ' -f1
+```
+
+```bash
+export AUBERGE_ADMIN_PASSWORD_HASH=<digest>
+```
+
+The env variable takes precedence over `config.yaml`. Use a long random password: the digest is unsalted, so a weak password is trivially reversible.
