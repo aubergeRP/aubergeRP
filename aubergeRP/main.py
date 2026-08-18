@@ -6,6 +6,7 @@ import os
 import secrets
 import shutil
 import stat
+import string
 from collections.abc import AsyncGenerator, Awaitable, Callable, MutableMapping
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -224,6 +225,11 @@ def _autoprovision_connectors(config: Config, data_dir: str) -> None:
             logger.warning("Auto-provision: config.yaml is read-only, active connector not persisted")
 
 
+def _looks_like_sha256_hash(value: str) -> bool:
+    """Return True if the value looks like a SHA-256 hex digest."""
+    return len(value) == 64 and all(c in string.hexdigits for c in value)
+
+
 def _init_admin_password(config: Config) -> None:
     """Initialize admin password.
 
@@ -236,6 +242,16 @@ def _init_admin_password(config: Config) -> None:
 
     env_hash = os.environ.get("AUBERGE_ADMIN_PASSWORD_HASH", "").strip()
     if env_hash:
+        if not _looks_like_sha256_hash(env_hash):
+            logger.warning(
+                "AUBERGE_ADMIN_PASSWORD_HASH does not look like a SHA-256 hash "
+                "(expected 64 hexadecimal characters, got %d characters). "
+                "Did you set the plain password instead of its hash? "
+                "Generate it with: "
+                "python3 -c 'import hashlib,sys; "
+                "print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' 'my-password'",
+                len(env_hash),
+            )
         config.app.admin_password_hash = env_hash
         return
 
