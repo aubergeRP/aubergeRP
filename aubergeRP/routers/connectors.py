@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ from ..models.connector import (
 )
 from .admin import get_admin_token
 from .errors import config_write_error
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 
@@ -302,6 +305,12 @@ def delete_connector(
     _last_test_results.pop(connector_id, None)
 
 
+def _exc_detail(exc: Exception) -> str:
+    """Human-readable detail: many exceptions (httpx.ConnectError) have empty str()."""
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
 @router.post("/{connector_id}/test")
 async def test_connector(
     connector_id: str,
@@ -312,7 +321,8 @@ async def test_connector(
     except KeyError:
         raise _not_found(connector_id)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        logger.exception("Connector test failed for %s", connector_id)
+        raise HTTPException(status_code=502, detail=_exc_detail(exc))
     _last_test_results.set(connector_id, result.get("connected", False))
     return result
 
@@ -397,9 +407,10 @@ async def test_connector_chat(
             }
         }
     except Exception as exc:
+        logger.exception("Connector chat test failed for %s", connector_id)
         return {
             "connected": False,
-            "details": {"error": str(exc)}
+            "details": {"error": _exc_detail(exc)}
         }
 
 
