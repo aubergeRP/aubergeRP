@@ -40,7 +40,7 @@ class OpenAITextConfig(CustomJSONConfig):
     frequency_penalty: float | None = None
     extra_body: dict[str, Any] = Field(default_factory=dict)
     timeout: int = 120
-    max_retries: int = Field(default=3, ge=0, le=10)
+    max_retries: int = Field(default=3, ge=0, le=100)
     supports_tool_calling: bool = True
     # Ask the provider to report real token usage at the end of a stream
     # (OpenAI's ``stream_options.include_usage``).  Disable it for providers
@@ -64,7 +64,7 @@ class OpenAIImageConfig(CustomJSONConfig):
     # ``imageDataUrl`` data URL so the backend can do img2img.
     image_support: bool = False
     timeout: int = 120
-    max_retries: int = Field(default=3, ge=0, le=10)
+    max_retries: int = Field(default=3, ge=0, le=100)
 
 
 class ComfyUIConfig(CustomJSONConfig):
