@@ -46,6 +46,11 @@ IMAGE_FAILURE_MESSAGE = (
 #: Retries used when no text connector is available to state its own limit.
 DEFAULT_GENERATION_MAX_RETRIES = 3
 
+#: Conversations already reported as running without an image connector.  The
+#: warning is worth one entry in the admin error tail, not one per message.
+_IMAGE_DISABLED_REPORTED: set[str] = set()
+_IMAGE_DISABLED_REPORTED_CAP = 1000
+
 
 @dataclass(slots=True)
 class GenerationOptions:
@@ -829,6 +834,8 @@ class ChatService:
 
         use_tools = getattr(text_connector, "supports_tool_calling", False)
         image_enabled = self._connector_manager.get_active_image_connector() is not None
+        if not image_enabled:
+            self._report_image_pipeline_disabled(conversation_id)
         image_autonomy = (
             image_enabled
             and self._image_autonomy
@@ -859,6 +866,7 @@ class ChatService:
 
         full_text = ""
         image_urls: list[str] = []
+        image_triggers = 0
         generated_media: list[GeneratedMedia] = []
         assistant_persisted = False
         request_tokens = count_prompt_tokens(messages)
@@ -882,6 +890,8 @@ class ChatService:
                         generated_media.append(GeneratedMedia.from_event(event))
                         yield event
                     else:
+                        if event["type"] == "image_start":
+                            image_triggers += 1
                         yield event
             else:
                 parser = ImageMarkerParser()
@@ -895,6 +905,7 @@ class ChatService:
                         elif ev["type"] == "image_trigger":
                             gen_id = str(uuid.uuid4())
                             prompt = ev["prompt"]
+                            image_triggers += 1
                             yield {
                                 "type": "image_start",
                                 "generation_id": gen_id,
@@ -915,6 +926,18 @@ class ChatService:
                     if ev["type"] == "token":
                         full_text += ev["text"]
                         yield {"type": "token", "content": ev["text"]}
+
+            if image_enabled:
+                # One line per reply that says whether the model actually asked
+                # for an image: "triggers=0" is the whole diagnosis when a
+                # character says "here it is" and nothing is generated.
+                logger.info(
+                    "[Image Gen] conversation=%s mode=%s triggers=%d generated=%d",
+                    conversation_id,
+                    "tool" if use_tools else "marker",
+                    image_triggers,
+                    len(image_urls),
+                )
 
             msg = self._conversation_service.append_message(
                 conversation_id, "assistant", full_text, images=image_urls
@@ -1009,20 +1032,37 @@ class ChatService:
         char: CharacterCard,
         conversation_id: str,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Stream using tool calling; handle generate_image tool calls."""
+        """Stream using tool calling; handle generate_image tool calls.
+
+        Text deltas still go through :class:`ImageMarkerParser`.  Plenty of
+        OpenAI-compatible backends accept the ``tools`` field and simply never
+        emit a tool call, and ``supports_tool_calling`` defaults to True: without
+        this fallback such a setup can never produce an image, and the model
+        writing ``[IMG: …]`` in prose would leak the marker into the reply.
+        """
         tools = [_IMAGE_TOOL, _SCHEDULE_PROACTIVE_TOOL, _CANCEL_SCHEDULE_TOOL, _LIST_SCHEDULES_TOOL]
+        parser = ImageMarkerParser()
 
         kwargs = _sampling_kwargs(text_connector)
         async for event in text_connector.stream_chat_completion_with_tools(messages, tools, **kwargs):
             if event["type"] == "token":
-                yield event
-            elif event["type"] == "tool_call" and event.get("name") == "generate_image":
+                for ev in parser.feed(event["content"]):
+                    if ev["type"] == "token":
+                        yield {"type": "token", "content": ev["text"]}
+                    else:
+                        async for img_event in self._dispatch_image_trigger(
+                            char, ev["prompt"], text_connector, messages, conversation_id
+                        ):
+                            yield img_event
+                continue
+            # Tool calls arrive once the text stream is over: flush any dangling
+            # marker prefix before emitting anything else.
+            for ev in parser.flush():
+                yield {"type": "token", "content": ev["text"]}
+            if event["type"] == "tool_call" and event.get("name") == "generate_image":
                 prompt = event.get("arguments", {}).get("prompt", "")
-                gen_id = str(uuid.uuid4())
-                yield {"type": "image_start", "generation_id": gen_id, "prompt": prompt}
-                async for img_event in self._handle_image(
-                    char, gen_id, prompt, text_connector, messages,
-                    conversation_id=conversation_id,
+                async for img_event in self._dispatch_image_trigger(
+                    char, prompt, text_connector, messages, conversation_id
                 ):
                     yield img_event
             elif event["type"] == "tool_call":
@@ -1038,6 +1078,9 @@ class ChatService:
                 except Exception as exc:
                     logger.warning("Proactive tool call failed: %s", exc)
                     yield {"type": "warning", "detail": "A proactive tool call failed."}
+
+        for ev in parser.flush():
+            yield {"type": "token", "content": ev["text"]}
 
     async def _handle_proactive_tool_call(
         self,
@@ -1303,6 +1346,52 @@ class ChatService:
         except Exception:
             logger.debug("Failed to read avatar for character %s", character_id, exc_info=True)
             return None
+
+    @staticmethod
+    def _report_image_pipeline_disabled(conversation_id: str) -> None:
+        """Surface a missing image connector instead of failing silently.
+
+        Without an active image connector ``build_prompt`` drops the image
+        instruction altogether: the model is never told it can send pictures, so
+        a user asking for one just gets a narrated "here it is" and nothing at
+        all is recorded.  Reported once per conversation and per process so the
+        admin error tail stays readable.
+        """
+        if conversation_id in _IMAGE_DISABLED_REPORTED:
+            return
+        if len(_IMAGE_DISABLED_REPORTED) >= _IMAGE_DISABLED_REPORTED_CAP:
+            # Long-running instances would otherwise keep every id forever;
+            # starting over just repeats the warning once per conversation.
+            _IMAGE_DISABLED_REPORTED.clear()
+        _IMAGE_DISABLED_REPORTED.add(conversation_id)
+        logger.warning(
+            "[Image Gen] No active image connector: the image instruction was not "
+            "added to the system prompt for conversation %s, so the model cannot "
+            "produce any image.",
+            conversation_id,
+        )
+        record_error(
+            "image",
+            "no active image connector: the model was not told it can send images",
+            conversation_id=conversation_id,
+        )
+
+    async def _dispatch_image_trigger(
+        self,
+        char: CharacterCard,
+        prompt: str,
+        text_connector: Any,
+        messages: list[dict[str, Any]],
+        conversation_id: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Announce an image trigger and stream the generation events."""
+        gen_id = str(uuid.uuid4())
+        yield {"type": "image_start", "generation_id": gen_id, "prompt": prompt}
+        async for img_event in self._handle_image(
+            char, gen_id, prompt, text_connector, messages,
+            conversation_id=conversation_id,
+        ):
+            yield img_event
 
     async def _handle_image(
         self,
