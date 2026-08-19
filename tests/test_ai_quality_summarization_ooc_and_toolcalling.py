@@ -820,7 +820,9 @@ def test_build_prompt_uses_tool_instruction_when_tool_calling():
     msgs = build_prompt(conv, char, use_tool_calling=True)
     system = next(m for m in msgs if m["role"] == "system")
     assert "generate_image" in system["content"]
-    assert "[IMG:" not in system["content"]
+    # The marker is only offered as a fallback for backends that accept the
+    # tools field and never call one; the tool remains the primary channel.
+    assert system["content"].index("generate_image") < system["content"].index("[IMG:")
 
 
 def test_build_prompt_uses_marker_instruction_by_default():
