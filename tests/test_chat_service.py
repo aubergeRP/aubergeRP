@@ -1960,3 +1960,91 @@ async def test_retry_image_without_avatar_passes_none(tmp_path):
 
     await collect(svc.retry_generate_image(conv.id, "elf ranger", "gen-1"))
     assert img_conn.reference_image is None
+
+
+# ---------------------------------------------------------------------------
+# [IMG:…] marker fallback on the tool-calling path
+# ---------------------------------------------------------------------------
+
+class _ToolsIgnoredText:
+    """Declares tool support but never emits a tool call — like many
+    OpenAI-compatible backends that accept the ``tools`` field and drop it."""
+
+    connector_type = "text"
+    supports_tool_calling = True
+
+    def __init__(self, tokens: list[str]) -> None:
+        self._tokens = tokens
+
+    async def stream_chat_completion_with_tools(self, messages, tools, **kw):
+        for token in self._tokens:
+            yield {"type": "token", "content": token}
+
+    async def stream_chat_completion(self, messages, **kw):
+        yield "llm enhanced marker prompt"
+
+    async def test_connection(self) -> dict:
+        return {}
+
+
+async def test_tool_path_falls_back_to_image_marker(tmp_path):
+    """A tools-capable connector that never calls the tool still honours [IMG:…]."""
+    img_conn = _RecordingImage()
+    char_svc, conv_svc, svc = make_chat_service(
+        tmp_path, _ToolsIgnoredText(["La voilà. ", "[IMG:a ta", "vern at dusk]", " Tiens."]), img_conn
+    )
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+
+    events = await collect(svc.stream_chat(conv.id, "Montre-moi une image"))
+
+    assert any(e["type"] == "image_start" for e in events)
+    assert any(e["type"] == "image_complete" for e in events)
+    assert img_conn.last_prompt == "llm enhanced marker prompt"
+    # The marker never leaks into the visible reply.
+    done = next(e for e in events if e["type"] == "done")
+    assert "[IMG:" not in done["full_content"]
+    assert done["full_content"] == "La voilà.  Tiens."
+
+
+async def test_tool_path_flushes_unterminated_marker(tmp_path):
+    """A marker left unclosed at the end of the stream is restored as text."""
+    char_svc, conv_svc, svc = make_chat_service(
+        tmp_path, _ToolsIgnoredText(["Voilà ", "[IMG:unclosed"]), _FakeImage()
+    )
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+
+    events = await collect(svc.stream_chat(conv.id, "Montre-moi"))
+    done = next(e for e in events if e["type"] == "done")
+    assert done["full_content"] == "Voilà [IMG:unclosed"
+    assert not any(e["type"] == "image_start" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# Missing image connector is reported instead of silently disabling images
+# ---------------------------------------------------------------------------
+
+async def test_missing_image_connector_is_reported_to_admin(tmp_path):
+    from aubergeRP.services import chat_service as chat_service_module
+
+    chat_service_module._IMAGE_DISABLED_REPORTED.clear()
+    registry = get_registry()
+    char_svc, conv_svc, svc = make_chat_service(tmp_path, _FakeText(["La voilà."]), None)
+    char = char_svc.create_character(CharacterData(name="Elara", description="An elven ranger."))
+    conv = conv_svc.create_conversation(char.id)
+
+    await collect(svc.stream_chat(conv.id, "Montre-moi une image"))
+    errors = [
+        e for e in registry.list_errors(component="image")
+        if e.conversation_id == conv.id and "no active image connector" in e.summary
+    ]
+    assert len(errors) == 1
+
+    # Reported once per conversation, not once per message.
+    await collect(svc.stream_chat(conv.id, "Encore une"))
+    errors = [
+        e for e in registry.list_errors(component="image")
+        if e.conversation_id == conv.id and "no active image connector" in e.summary
+    ]
+    assert len(errors) == 1
