@@ -351,7 +351,7 @@ def test_build_prompt_no_image_instruction_without_image_connector(use_tools):
     char = _char()
     conv = _conv(char)
     msgs = build_prompt(conv, char, use_tool_calling=use_tools, image_enabled=False)
-    system = msgs[0]["content"]
+    system = "\n".join(m["content"] for m in msgs if m["role"] == "system")
     assert "[IMG:" not in system
     assert "generate_image" not in system
 
@@ -359,7 +359,9 @@ def test_build_prompt_no_image_instruction_without_image_connector(use_tools):
 def test_build_prompt_strict_image_instruction_by_default():
     char = _char()
     conv = _conv(char)
-    system = build_prompt(conv, char)[0]["content"]
+    system = "\n".join(
+        m["content"] for m in build_prompt(conv, char) if m["role"] == "system"
+    )
     assert get_prompt("image_marker_instruction") in system
     assert get_prompt("image_marker_instruction_autonomous") not in system
 
@@ -367,7 +369,8 @@ def test_build_prompt_strict_image_instruction_by_default():
 def test_build_prompt_autonomous_marker_instruction():
     char = _char()
     conv = _conv(char)
-    system = build_prompt(conv, char, image_autonomy=True)[0]["content"]
+    messages = build_prompt(conv, char, image_autonomy=True)
+    system = "\n".join(m["content"] for m in messages if m["role"] == "system")
     assert get_prompt("image_marker_instruction") in system
     assert get_prompt("image_marker_instruction_autonomous") in system
 
@@ -375,9 +378,10 @@ def test_build_prompt_autonomous_marker_instruction():
 def test_build_prompt_autonomous_tool_instruction():
     char = _char()
     conv = _conv(char)
-    system = build_prompt(
+    messages = build_prompt(
         conv, char, use_tool_calling=True, image_autonomy=True
-    )[0]["content"]
+    )
+    system = "\n".join(m["content"] for m in messages if m["role"] == "system")
     assert get_prompt("image_tool_instruction") in system
     assert get_prompt("image_tool_instruction_autonomous") in system
 
@@ -543,15 +547,16 @@ def test_build_prompt_default_system_includes_markdown_formatting():
     assert "*[" in system["content"]
 
 
-def test_build_prompt_custom_system_prompt_no_markdown_override():
-    """A custom system prompt is used as-is; Markdown rules are not injected into it."""
+def test_build_prompt_custom_system_prompt_keeps_default_instructions():
+    """A character override is additive and cannot erase global instructions."""
     char = _char(system_prompt="Custom prompt without markdown.")
     conv = _conv(char)
     msgs = build_prompt(conv, char)
     system = next(m for m in msgs if m["role"] == "system")
-    # The custom prompt is the base; the roleplay_bracket_instruction (which now
-    # references Markdown italic) is still appended, but the base itself is custom.
     assert "Custom prompt without markdown." in system["content"]
+    assert get_prompt("default_system").replace("{{char}}", "Elara").replace(
+        "{{user}}", "User"
+    ) in system["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -737,7 +742,12 @@ async def test_recent_generation_records_complete_autonomous_prompt(tmp_path):
     svc._statistics_service = StatisticsService(tmp_path)
     svc._image_autonomy = True
     char = char_svc.create_character(
-        CharacterData(name="Elara", description="An elven ranger.", first_mes="")
+        CharacterData(
+            name="Elara",
+            description="An elven ranger.",
+            first_mes="",
+            system_prompt="Incarne Elara sans jamais sortir du rôle.",
+        )
     )
     conv = conv_svc.create_conversation(char.id)
     registry = get_registry()
@@ -749,13 +759,21 @@ async def test_recent_generation_records_complete_autonomous_prompt(tmp_path):
     recorded = registry.get_payload(payload_id)
     assert recorded is not None
     request = json.loads(recorded.request)
-    system = request["messages"][0]["content"]
+    system_messages = [
+        message["content"]
+        for message in request["messages"]
+        if message["role"] == "system"
+    ]
+    system = "\n".join(system_messages)
     resolved_default = get_prompt("default_system").replace("{{char}}", "Elara").replace(
         "{{user}}", "User"
     )
     assert resolved_default in system
+    assert "Incarne Elara sans jamais sortir du rôle." in system
     assert get_prompt("image_marker_instruction") in system
     assert get_prompt("image_marker_instruction_autonomous") in system
+    assert get_prompt("image_marker_instruction") in system_messages
+    assert get_prompt("image_marker_instruction_autonomous") in system_messages
 
 
 async def test_generate_reply_uses_summarization_pipeline(tmp_path):

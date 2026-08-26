@@ -475,19 +475,14 @@ def build_prompt(
     """
     messages: list[dict[str, str]] = []
 
-    system_parts: list[str] = []
-    base_prompt = char.data.system_prompt if char.data.system_prompt else get_prompt("default_system")
-    system_parts.append(resolve_macros(base_prompt, char.data.name, user_name))
-    # Append the image instruction appropriate for the backend — but only when an
-    # image connector is actually available, otherwise the model would emit
-    # markers/tool calls that can never produce anything.
-    if image_enabled:
-        img_instruction_key = (
-            "image_tool_instruction" if use_tool_calling else "image_marker_instruction"
+    system_parts = [resolve_macros(get_prompt("default_system"), char.data.name, user_name)]
+    if char.data.system_prompt:
+        # Character cards call this field a system-prompt override, but it must
+        # not erase aubergeRP's global safety/formatting instructions.  Place it
+        # after the default so character-specific directions remain authoritative.
+        system_parts.append(
+            resolve_macros(char.data.system_prompt, char.data.name, user_name)
         )
-        system_parts.append(get_prompt(img_instruction_key))
-        if image_autonomy:
-            system_parts.append(get_prompt(f"{img_instruction_key}_autonomous"))
     system_parts.append(get_prompt("roleplay_bracket_instruction"))
     no_reasoning = get_prompt("no_reasoning_instruction")
     if no_reasoning:
@@ -518,6 +513,20 @@ def build_prompt(
     elif nsfw_policy == "allow":
         system_parts.append(get_prompt("nsfw_allow_guardrail"))
     messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+
+    # Keep connector protocol instructions in distinct system messages.  This
+    # makes them impossible to confuse with character-card text in the admin
+    # request trace and gives the model a clear, dedicated rule to follow.
+    if image_enabled:
+        img_instruction_key = (
+            "image_tool_instruction" if use_tool_calling else "image_marker_instruction"
+        )
+        messages.append({"role": "system", "content": get_prompt(img_instruction_key)})
+        if image_autonomy:
+            messages.append({
+                "role": "system",
+                "content": get_prompt(f"{img_instruction_key}_autonomous"),
+            })
 
     if summary_text:
         messages.append({"role": "system", "content": format_summary_message(summary_text)})
