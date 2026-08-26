@@ -1,6 +1,7 @@
 """Tests for chat_service — ImageMarkerParser, build_prompt, stream_chat."""
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -367,6 +368,7 @@ def test_build_prompt_autonomous_marker_instruction():
     char = _char()
     conv = _conv(char)
     system = build_prompt(conv, char, image_autonomy=True)[0]["content"]
+    assert get_prompt("image_marker_instruction") in system
     assert get_prompt("image_marker_instruction_autonomous") in system
 
 
@@ -376,6 +378,7 @@ def test_build_prompt_autonomous_tool_instruction():
     system = build_prompt(
         conv, char, use_tool_calling=True, image_autonomy=True
     )[0]["content"]
+    assert get_prompt("image_tool_instruction") in system
     assert get_prompt("image_tool_instruction_autonomous") in system
 
 
@@ -724,6 +727,35 @@ async def test_generate_reply_uses_character_configuration(tmp_path):
     assert "Elara's description: An elven ranger." in system_prompt
     assert "Elara's personality: Brave and witty." in system_prompt
     assert "Scenario: Inside an old tavern." in system_prompt
+
+
+async def test_recent_generation_records_complete_autonomous_prompt(tmp_path):
+    text = _RecordingText(["Hello"])
+    char_svc, conv_svc, svc = make_chat_service(
+        tmp_path, text_conn=text, image_conn=_FakeImage()
+    )
+    svc._statistics_service = StatisticsService(tmp_path)
+    svc._image_autonomy = True
+    char = char_svc.create_character(
+        CharacterData(name="Elara", description="An elven ranger.", first_mes="")
+    )
+    conv = conv_svc.create_conversation(char.id)
+    registry = get_registry()
+    registry.reset()
+
+    await svc.generate_reply(conv.id, "hello")
+
+    payload_id = next(iter(registry.payload_ids()))
+    recorded = registry.get_payload(payload_id)
+    assert recorded is not None
+    request = json.loads(recorded.request)
+    system = request["messages"][0]["content"]
+    resolved_default = get_prompt("default_system").replace("{{char}}", "Elara").replace(
+        "{{user}}", "User"
+    )
+    assert resolved_default in system
+    assert get_prompt("image_marker_instruction") in system
+    assert get_prompt("image_marker_instruction_autonomous") in system
 
 
 async def test_generate_reply_uses_summarization_pipeline(tmp_path):

@@ -290,6 +290,20 @@ def test_custom_json_adds_unknown_fields():
     assert payload["seed"] == 42
 
 
+def test_debug_request_payload_matches_tool_call_body():
+    conn = make_connector()
+    messages = [{"role": "system", "content": "full prompt"}]
+    tools = [{"type": "function", "function": {"name": "generate_image"}}]
+
+    payload = conn.build_request_payload(messages, tools=tools)
+
+    assert payload["messages"] == messages
+    assert payload["tools"] == tools
+    assert payload["tool_choice"] == "auto"
+    assert payload["model"] == "llama3"
+    assert payload["temperature"] == 0.8
+
+
 def test_custom_json_empty_string_coerced():
     conn = make_connector(custom_json="")
     assert conn.config.custom_json == {}

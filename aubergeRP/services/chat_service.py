@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -17,7 +18,7 @@ from ..models.conversation import Conversation, Message
 from ..services.character_service import CharacterService
 from ..services.conversation_service import ConversationService, resolve_macros
 from ..services.media_service import GeneratedMedia, MediaService
-from ..services.observability_service import format_messages, record_error
+from ..services.observability_service import record_error
 from ..services.prompt_service import get_prompt
 from ..services.statistics_service import StatisticsService
 from ..services.summarization_service import (
@@ -406,6 +407,31 @@ def _sampling_kwargs(text_connector: Any) -> dict[str, Any]:
     return kwargs
 
 
+def _format_llm_request(
+    text_connector: Any,
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+) -> str:
+    """Return the complete connector request body for the admin debugger."""
+    kwargs = _sampling_kwargs(text_connector)
+    build_payload = getattr(text_connector, "build_request_payload", None)
+    if callable(build_payload):
+        try:
+            payload = build_payload(messages, tools=tools, **kwargs)
+            return json.dumps(payload, ensure_ascii=False, indent=2)
+        except Exception:
+            logger.debug("Failed to build the connector request trace", exc_info=True)
+
+    # Third-party/test connectors may not expose their provider payload.  Keep
+    # the complete arguments ChatService passes to them, including tools.
+    fallback_payload: dict[str, Any] = {"messages": messages}
+    if tools is not None:
+        fallback_payload["tools"] = tools
+    fallback_payload.update(kwargs)
+    return json.dumps(fallback_payload, ensure_ascii=False, indent=2)
+
+
 def autonomy_allowed(conversation: Conversation, cooldown: int) -> bool:
     """Return False if an image was produced in the last *cooldown* assistant messages.
 
@@ -459,9 +485,9 @@ def build_prompt(
         img_instruction_key = (
             "image_tool_instruction" if use_tool_calling else "image_marker_instruction"
         )
-        if image_autonomy:
-            img_instruction_key += "_autonomous"
         system_parts.append(get_prompt(img_instruction_key))
+        if image_autonomy:
+            system_parts.append(get_prompt(f"{img_instruction_key}_autonomous"))
     system_parts.append(get_prompt("roleplay_bracket_instruction"))
     no_reasoning = get_prompt("no_reasoning_instruction")
     if no_reasoning:
@@ -876,6 +902,12 @@ class ChatService:
         connector_id, connector_name, connector_backend = self._resolve_text_connector_metadata(
             text_connector
         )
+        tools = (
+            [_IMAGE_TOOL, _SCHEDULE_PROACTIVE_TOOL, _CANCEL_SCHEDULE_TOOL, _LIST_SCHEDULES_TOOL]
+            if use_tools
+            else None
+        )
+        request_body = _format_llm_request(text_connector, messages, tools=tools)
 
         try:
             if use_tools:
@@ -1021,7 +1053,7 @@ class ChatService:
                         generation_type=self._generation_type,
                         model=_connector_model(text_connector),
                         tokens_estimated=estimated,
-                        request_body=format_messages(messages),
+                        request_body=request_body,
                         response_body=full_text,
                     )
 

@@ -45,17 +45,17 @@ PROMPT_META: dict[str, dict[str, str]] = {
     "image_marker_instruction_autonomous": {
         "label": "Image Marker Instruction (autonomous)",
         "description": (
-            "Variant of the marker instruction used when chat.image_autonomy is enabled "
+            "Additional marker instruction appended when chat.image_autonomy is enabled "
             "and the image cooldown has elapsed. Lets the model emit [IMG: ...] markers "
-            "on its own initiative, not only on explicit user request."
+            "on its own initiative."
         ),
     },
     "image_tool_instruction_autonomous": {
         "label": "Image Tool Instruction (autonomous)",
         "description": (
-            "Variant of the tool instruction used when chat.image_autonomy is enabled "
+            "Additional tool instruction appended when chat.image_autonomy is enabled "
             "and the image cooldown has elapsed. Lets the model call generate_image on "
-            "its own initiative, not only on explicit user request."
+            "its own initiative."
         ),
     },
     "roleplay_bracket_instruction": {

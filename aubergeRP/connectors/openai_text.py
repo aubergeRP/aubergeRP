@@ -86,6 +86,31 @@ class OpenAITextConnector(TextConnector):
 
         return payload
 
+    def build_request_payload(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        top_p: float | None = None,
+        top_k: int | None = None,
+        repeat_penalty: float | None = None,
+        presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
+        extra_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Build the exact JSON body sent to the OpenAI-compatible API."""
+        payload = self._build_payload(
+            messages, model, temperature, max_tokens, top_p, top_k,
+            repeat_penalty, presence_penalty, frequency_penalty, extra_body,
+        )
+        if tools is not None:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        return payload
+
     async def test_connection(self) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(timeout=self.config.timeout) as client:
@@ -148,9 +173,17 @@ class OpenAITextConnector(TextConnector):
         Tools are not sent; the LLM expresses image generation through the
         [IMG:…] text marker convention instead.
         """
-        payload = self._build_payload(
-            messages, model, temperature, max_tokens,
-            top_p, top_k, repeat_penalty, presence_penalty, frequency_penalty, extra_body,
+        payload = self.build_request_payload(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            top_k=top_k,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            extra_body=extra_body,
         )
 
         model_name = payload["model"]
@@ -234,13 +267,19 @@ class OpenAITextConnector(TextConnector):
           {"type": "token", "content": str}
           {"type": "tool_call", "name": str, "arguments": dict}
         """
-        payload = self._build_payload(
-            messages, model, temperature, max_tokens,
-            top_p, top_k, repeat_penalty, presence_penalty, frequency_penalty, extra_body,
+        payload = self.build_request_payload(
+            messages,
+            tools=tools,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            top_k=top_k,
+            repeat_penalty=repeat_penalty,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            extra_body=extra_body,
         )
-        # Extend with tool-calling fields absent from the plain completion path.
-        payload["tools"] = tools
-        payload["tool_choice"] = "auto"
 
         model_name = payload["model"]
         req_bytes = len(json.dumps(payload).encode())
