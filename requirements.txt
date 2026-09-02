@@ -9,4 +9,4 @@ pyyaml>=6.0.3,<7.0
 sqlmodel>=0.0.39,<1.0
 aiofiles>=23.0,<25.0
 websockets>=17.0.1,<18.0
-aiogram>=3.30.0,<4.0
+aiogram>=3.31.0,<4.0
